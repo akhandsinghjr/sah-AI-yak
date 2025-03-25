@@ -8,6 +8,7 @@ import NotFound from "./pages/NotFound";
 import Chat from "./pages/Chat";
 import Navigation from "./components/Navigation";
 import { ThemeProvider } from "@/components/theme-provider"
+import Footer2 from "./components/Footer";
 
 const queryClient = new QueryClient();
 
@@ -27,6 +28,7 @@ const App = () => (
               <Route path="*" element={<NotFound />} />
             </Routes>
           </div>
+          <Footer2 />
         </Router>
       </TooltipProvider>
     </QueryClientProvider>
