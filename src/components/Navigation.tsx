@@ -3,6 +3,7 @@ import React from "react";
 import { NavLink } from "react-router-dom";
 import { Home, MessageSquare } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { ModeToggle } from "./mode-toggle";
 
 const Navigation = () => {
   return (
@@ -37,6 +38,9 @@ const Navigation = () => {
                 <MessageSquare className="h-4 w-4" />
                 <span>Chat</span>
               </NavLink>
+            </li>
+            <li>
+              <ModeToggle />
             </li>
           </ul>
         </div>
