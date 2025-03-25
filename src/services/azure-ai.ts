@@ -712,7 +712,7 @@ export const mentalHealthService = {
     }
   },
 
-  // Continue the conversation with user input
+  // Continue the conversation with user input - improved to detect inconsistencies
   continueConversation: async (messages: Array<{role: string, content: string}>, userImage?: Blob | null) => {
     try {
       // First, process any user image if provided
@@ -725,19 +725,31 @@ export const mentalHealthService = {
         
         // Add image description and analysis to the conversation context
         if (imageAnalysis && imageAnalysis.sentiment) {
-          // Find the last user message to attach the image analysis to
+          // Find the last user message to analyze sentiment comparison
           const lastUserMessageIndex = enhancedMessages.findIndex(
             (msg, i, arr) => msg.role === "user" && (i === arr.length - 1 || arr[i + 1].role === "assistant")
           );
           
           if (lastUserMessageIndex !== -1) {
+            const userText = enhancedMessages[lastUserMessageIndex].content;
+            
             // Add system message with image analysis after the user's message
             enhancedMessages.splice(lastUserMessageIndex + 1, 0, {
               role: "system",
               content: `Image analysis: The user shared a photo of themselves. 
                 Visual assessment indicates the following emotional signals: ${imageAnalysis.sentiment}. 
                 Description of the image: ${imageAnalysis.visionAnalysis?.description?.captions?.[0]?.text || "Person in image"}.
-                Consider this visual information in your response, but don't explicitly mention that you've analyzed their photo.`
+                
+                The text message from the user was: "${userText}"
+                
+                Compare the sentiment in their text with their facial expression. If there appears to be
+                an inconsistency (e.g., positive text but negative expression, or claiming to be fine but looking distressed),
+                address this gently in your response without directly stating you noticed the inconsistency.
+                
+                For example, you might say something like "I notice there might be more to how you're feeling..." or
+                "Your expression suggests you might be experiencing more complex emotions than your words convey..."
+                
+                Incorporate this analysis naturally into your response rather than explicitly stating you detected an inconsistency.`
             });
           }
         }
@@ -752,13 +764,17 @@ export const mentalHealthService = {
         content: `You are an AI mental health assistant. Your purpose is to provide supportive conversation, 
         preliminary assessment, and general wellness advice. Keep your responses compassionate, non-judgmental, 
         and concise (under 150 words). If the user has shared a photo of themselves, subtly incorporate insights 
-        from the visual cues without explicitly mentioning the image analysis. Suggest mindfulness techniques or 
-        coping strategies when appropriate. After a few exchanges, gently ask if they would like to share a photo 
-        to help you better understand their current state, but make this optional.
+        from the visual cues including any apparent inconsistencies between their text and facial expressions.
+        If you notice a mismatch between what they say and how they appear, gently explore this without being confrontational.
+        Suggest mindfulness techniques or coping strategies when appropriate.
+        
         Important: Always clarify you are not a replacement for professional mental health services.`
       };
       
       const fullMessages = [systemPrompt, ...enhancedMessages];
+      
+      // Log for debugging
+      console.log("Sending enhanced messages to GPT:", fullMessages);
       
       const response = await fetch(endpoint, {
         method: "POST",

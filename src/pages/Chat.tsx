@@ -70,7 +70,7 @@ const Chat = () => {
     }
   };
 
-  // Modified sendMessage function to first capture a photo
+  // Modified sendMessage function - directly start the capture process
   const sendMessage = async () => {
     if (!currentMessage.trim() && !chatImage) {
       toast({
@@ -81,29 +81,34 @@ const Chat = () => {
       return;
     }
 
+    // Prevent multiple clicks while processing
+    if (loading || isAutoCaptureInProgress) {
+      return;
+    }
+
     // If we already have a manually captured image, send directly
     if (chatImage) {
       sendMessageWithImage(currentMessage, chatImage);
     } else {
-      // Otherwise, trigger auto-capture first
+      // Show that we're starting the capture process
+      setIsAutoCaptureInProgress(true);
       setPendingMessage(currentMessage);
-      setShouldSendAfterCapture(true);
+      
+      // Clear input immediately to show the user their message is being processed
+      setCurrentMessage("");
+      
+      // Start the auto-capture process
       autoCaptureThenSend();
     }
   };
 
-  // New function to automatically capture a photo
+  // Improved auto-capture function
   const autoCaptureThenSend = async () => {
-    setIsAutoCaptureInProgress(true);
-    
     try {
       // Close any existing stream first
       if (streamRef.current) {
         streamRef.current.getTracks().forEach(track => track.stop());
       }
-      
-      // Reset video ready state
-      setIsVideoReady(false);
       
       // Get camera stream
       const stream = await navigator.mediaDevices.getUserMedia({ 
@@ -117,111 +122,87 @@ const Chat = () => {
       
       streamRef.current = stream;
       
-      // Set up video element without showing the dialog
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
         videoRef.current.muted = true;
         videoRef.current.setAttribute('playsinline', 'true');
         
-        // When video is ready, take the capture
-        videoRef.current.oncanplay = () => {
-          setTimeout(() => {
-            if (!videoRef.current || !canvasRef.current) {
-              handleCaptureFailed("Camera elements not found");
-              return;
-            }
-            
-            try {
-              const video = videoRef.current;
-              const canvas = canvasRef.current;
-              
-              // Set canvas dimensions to match video
-              canvas.width = video.videoWidth || 640;
-              canvas.height = video.videoHeight || 480;
-              
-              // Draw the current video frame to the canvas
-              const context = canvas.getContext('2d');
-              if (!context) {
-                throw new Error("Could not get canvas context");
-              }
-              
-              context.drawImage(video, 0, 0, canvas.width, canvas.height);
-              
-              // Convert the canvas to blob/file
-              canvas.toBlob((blob) => {
-                if (blob) {
-                  // Create a File object from the blob
-                  const file = new File([blob], "auto-emotion-capture.jpg", { type: "image/jpeg" });
-                  
-                  // Clean up camera stream
-                  cleanupCameraStream();
-                  
-                  // Send the message with the captured image
-                  if (shouldSendAfterCapture) {
-                    sendMessageWithImage(pendingMessage, file);
-                    setShouldSendAfterCapture(false);
-                    setPendingMessage("");
-                  }
-                } else {
-                  handleCaptureFailed("Failed to create image file");
-                }
-              }, "image/jpeg", 0.95);
-            } catch (error) {
-              console.error("Error during automatic photo capture:", error);
-              handleCaptureFailed("Error capturing photo");
-            }
-          }, 500); // Short delay to ensure the camera is fully initialized
-        };
+        // Create a promise to wait for the video to be ready
+        const videoReadyPromise = new Promise<void>((resolve, reject) => {
+          const timeoutId = setTimeout(() => {
+            reject(new Error("Camera initialization timed out"));
+          }, 5000);
+          
+          videoRef.current!.oncanplay = () => {
+            clearTimeout(timeoutId);
+            resolve();
+          };
+          
+          videoRef.current!.onerror = () => {
+            clearTimeout(timeoutId);
+            reject(new Error("Video error occurred"));
+          };
+        });
         
+        // Start playing the video
         const playPromise = videoRef.current.play();
         if (playPromise !== undefined) {
-          playPromise.catch(err => {
-            console.error("Error playing video for auto-capture:", err);
-            handleCaptureFailed("Could not start camera");
-          });
+          await playPromise;
         }
+        
+        // Wait for the video to be ready
+        await videoReadyPromise;
+        
+        // Short delay to ensure good frame
+        await new Promise(resolve => setTimeout(resolve, 300));
+        
+        // Now capture the photo
+        if (!videoRef.current || !canvasRef.current) {
+          throw new Error("Camera elements not found");
+        }
+        
+        const video = videoRef.current;
+        const canvas = canvasRef.current;
+        
+        // Set canvas dimensions to match video
+        canvas.width = video.videoWidth || 640;
+        canvas.height = video.videoHeight || 480;
+        
+        // Draw the current video frame to the canvas
+        const context = canvas.getContext('2d');
+        if (!context) {
+          throw new Error("Could not get canvas context");
+        }
+        
+        context.drawImage(video, 0, 0, canvas.width, canvas.height);
+        
+        // Convert the canvas to blob and send the message
+        const blob = await new Promise<Blob | null>((resolve) => {
+          canvas.toBlob(resolve, "image/jpeg", 0.95);
+        });
+        
+        if (!blob) {
+          throw new Error("Failed to create image blob");
+        }
+        
+        // Create a File object from the blob
+        const file = new File([blob], "auto-emotion-capture.jpg", { type: "image/jpeg" });
+        
+        // Clean up the camera stream
+        cleanupCameraStream();
+        
+        // Send the message with the captured image
+        await sendMessageWithImage(pendingMessage, file);
       } else {
-        handleCaptureFailed("Camera element not found");
+        throw new Error("Video element not found");
       }
     } catch (error) {
-      console.error("Error accessing camera for auto-capture:", error);
-      handleCaptureFailed("Could not access camera");
+      console.error("Error in auto-capture:", error);
+      handleCaptureFailed(error instanceof Error ? error.message : "Unknown error");
     }
   };
 
-  // Function to handle auto-capture failures
-  const handleCaptureFailed = (errorMessage: string) => {
-    toast({
-      title: "Photo Capture Failed",
-      description: `${errorMessage}. Sending message without photo.`,
-      variant: "destructive",
-    });
-    
-    cleanupCameraStream();
-    
-    // Send the message without an image
-    if (shouldSendAfterCapture) {
-      sendMessageWithImage(pendingMessage, null);
-      setShouldSendAfterCapture(false);
-      setPendingMessage("");
-    }
-  };
-
-  // Function to clean up camera resources
-  const cleanupCameraStream = () => {
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach(track => track.stop());
-      streamRef.current = null;
-    }
-    
-    if (videoRef.current) {
-      videoRef.current.srcObject = null;
-    }
-    
-    setIsAutoCaptureInProgress(false);
-  };
-
-  // Function to actually send the message with image (if available)
+  // Improved send message with image function
   const sendMessageWithImage = async (messageText: string, imageFile: File | null) => {
     // Add user message to chat
     const userMessage = {
@@ -233,7 +214,6 @@ const Chat = () => {
     
     const updatedMessages = [...chatMessages, userMessage];
     setChatMessages(updatedMessages);
-    setCurrentMessage("");
     
     // Indicate loading state
     setLoading(true);
@@ -244,6 +224,20 @@ const Chat = () => {
         role: msg.role,
         content: msg.content,
       }));
+      
+      // Add special instructions for the AI to check for inconsistencies 
+      // between the text and facial expression
+      if (imageFile) {
+        apiMessages.push({
+          role: "system",
+          content: `For this message, the user has shared both text and a facial image. 
+            In addition to responding to their message, please analyze if there appears to be 
+            any inconsistency between their text sentiment and facial expression. 
+            For example, if they claim to be happy but look sad, or say they're fine but appear distressed, 
+            gently acknowledge this inconsistency in your response.
+            Don't explicitly say you're comparing text and image, but incorporate your observations naturally.`
+        });
+      }
       
       // Send message and image to the mental health service
       const response = await azureAIServices.mentalHealth.continueConversation(
@@ -274,7 +268,40 @@ const Chat = () => {
       });
     } finally {
       setLoading(false);
+      setPendingMessage("");
     }
+  };
+
+  // Improved error handling for capture failures
+  const handleCaptureFailed = (errorMessage: string) => {
+    console.error(`Auto-capture failed: ${errorMessage}`);
+    
+    toast({
+      title: "Photo Capture Failed",
+      description: `${errorMessage}. Sending message without photo.`,
+      variant: "destructive",
+    });
+    
+    cleanupCameraStream();
+    
+    // Still send the message, just without the image
+    if (pendingMessage) {
+      sendMessageWithImage(pendingMessage, null);
+    }
+  };
+
+  // Improved cleanup function
+  const cleanupCameraStream = () => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(track => track.stop());
+      streamRef.current = null;
+    }
+    
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
+    
+    setIsAutoCaptureInProgress(false);
   };
 
   // Image upload handling
@@ -697,11 +724,17 @@ const Chat = () => {
                 </div>
               )}
               
-              {/* Input Area - Updated to emphasize the complete message submission */}
+              {/* Input Area - Updated to improve loading state display */}
               <div className="flex items-end gap-2">
                 <div className="flex-1 flex flex-col gap-1">
                   <Textarea
-                    placeholder={isAutoCaptureInProgress ? "Capturing your photo..." : "Type your message here..."}
+                    placeholder={
+                      isAutoCaptureInProgress 
+                        ? "Capturing your facial expression for analysis..." 
+                        : loading 
+                          ? "Processing your message..." 
+                          : "Type your message here..."
+                    }
                     value={currentMessage}
                     onChange={(e) => setCurrentMessage(e.target.value)}
                     className="flex-1 min-h-[80px] resize-none"
@@ -716,7 +749,9 @@ const Chat = () => {
                   <div className="text-xs text-gray-500">
                     {chatImage 
                       ? "A photo is already attached to this message" 
-                      : "A photo of you will be automatically captured when you send your message"}
+                      : isAutoCaptureInProgress
+                        ? "Capturing your facial expression to analyze with your message..."
+                        : "A photo of you will be automatically captured when you send your message"}
                   </div>
                 </div>
                 <div className="flex flex-col gap-2">
@@ -745,9 +780,22 @@ const Chat = () => {
                     size="icon"
                     onClick={sendMessage}
                     disabled={loading || isAutoCaptureInProgress || !currentMessage.trim()}
-                    title="Send Message"
+                    title={
+                      loading 
+                        ? "Processing..." 
+                        : isAutoCaptureInProgress 
+                          ? "Capturing..." 
+                          : "Send Message"
+                    }
                   >
-                    <ArrowRightIcon className="h-4 w-4" />
+                    {loading || isAutoCaptureInProgress ? (
+                      <svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                      </svg>
+                    ) : (
+                      <ArrowRightIcon className="h-4 w-4" />
+                    )}
                   </Button>
                 </div>
                 <input
@@ -759,7 +807,7 @@ const Chat = () => {
                 />
               </div>
               
-              {/* Disclaimer */}
+              {/* Updated disclaimer to mention expression discrepancy detection */}
               <div className="mt-4 text-xs text-gray-500 dark:text-gray-400 italic border-t pt-4 border-gray-200 dark:border-gray-700">
                 <p>
                   <strong>Note:</strong> This AI assistant is not a substitute for professional mental health care. 
@@ -767,7 +815,8 @@ const Chat = () => {
                 </p>
                 <p className="mt-1">
                   Your conversation is processed by Azure AI services to provide personalized support. 
-                  Photos are automatically captured with each message to analyze facial expressions and improve emotional assessment.
+                  Photos are automatically captured with each message to analyze facial expressions and detect potential 
+                  inconsistencies between your written message and emotional state.
                 </p>
               </div>
             </CardContent>
