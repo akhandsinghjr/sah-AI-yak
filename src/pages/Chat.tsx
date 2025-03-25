@@ -28,6 +28,11 @@ const Chat = () => {
   const streamRef = useRef<MediaStream | null>(null);
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
 
+  // State for auto-capture functionality
+  const [autoCapture, setAutoCapture] = useState(false);
+  const [showPermissionPrompt, setShowPermissionPrompt] = useState(false);
+  const [captureInProgress, setCaptureInProgress] = useState(false);
+
   // Scroll to bottom when messages update
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -48,6 +53,7 @@ const Chat = () => {
       ]);
       
       setIsStarted(true);
+      setShowPermissionPrompt(true);  // Show permission prompt after starting
       
       toast({
         title: "Mental Health Assistant Activated",
@@ -116,6 +122,13 @@ const Chat = () => {
       // Clear any uploaded image after sending
       setChatImage(null);
       setChatImagePreview(null);
+      
+      // Trigger auto-capture after a brief delay to let user read response
+      if (autoCapture) {
+        setTimeout(() => {
+          triggerAutomaticCapture();
+        }, 2000); // 2 seconds delay
+      }
       
     } catch (error) {
       console.error("Error in mental health conversation:", error);
@@ -384,6 +397,178 @@ const Chat = () => {
     }
   };
 
+  // New function to trigger automatic photo capture
+  const triggerAutomaticCapture = async () => {
+    if (captureInProgress) return;
+    
+    setCaptureInProgress(true);
+    
+    try {
+      // First close any existing camera stream
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach(track => track.stop());
+      }
+      
+      // Reset video ready state
+      setIsVideoReady(false);
+      
+      // Get camera stream
+      const stream = await navigator.mediaDevices.getUserMedia({ 
+        video: { 
+          facingMode: "user",
+          width: { ideal: 1280 },
+          height: { ideal: 720 }
+        },
+        audio: false
+      });
+      
+      streamRef.current = stream;
+      
+      // Set up video element directly without dialog
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        videoRef.current.muted = true;
+        videoRef.current.setAttribute('playsinline', 'true');
+        
+        // When video is ready, take the capture
+        videoRef.current.oncanplay = () => {
+          // Short delay to ensure video is properly initialized
+          setTimeout(() => {
+            if (!videoRef.current || !canvasRef.current) {
+              setCaptureInProgress(false);
+              return;
+            }
+            
+            try {
+              const video = videoRef.current;
+              const canvas = canvasRef.current;
+              
+              // Set canvas dimensions to match video
+              canvas.width = video.videoWidth || 640;
+              canvas.height = video.videoHeight || 480;
+              
+              // Draw the current video frame to the canvas
+              const context = canvas.getContext('2d');
+              if (!context) {
+                throw new Error("Could not get canvas context");
+              }
+              
+              context.drawImage(video, 0, 0, canvas.width, canvas.height);
+              
+              // Convert the canvas to blob/file
+              canvas.toBlob((blob) => {
+                if (blob) {
+                  // Create a File object from the blob
+                  const file = new File([blob], "auto-capture.jpg", { type: "image/jpeg" });
+                  
+                  // Update state with the file
+                  setChatImage(file);
+                  setChatImagePreview(URL.createObjectURL(blob));
+                  
+                  // Send the message with just the image
+                  setTimeout(() => {
+                    sendAutoCaptureMessage(file);
+                  }, 500);
+                }
+                
+                // Clean up the stream
+                if (streamRef.current) {
+                  streamRef.current.getTracks().forEach(track => track.stop());
+                  streamRef.current = null;
+                }
+                
+                if (videoRef.current) {
+                  videoRef.current.srcObject = null;
+                }
+                
+              }, "image/jpeg", 0.95);
+            } catch (error) {
+              console.error("Error during auto-capture:", error);
+              setCaptureInProgress(false);
+            }
+          }, 500);
+        };
+        
+        const playPromise = videoRef.current.play();
+        if (playPromise !== undefined) {
+          playPromise.catch(err => {
+            console.error("Error playing video for auto-capture:", err);
+            setCaptureInProgress(false);
+          });
+        }
+      }
+    } catch (error) {
+      console.error("Error accessing camera for auto-capture:", error);
+      setCaptureInProgress(false);
+    }
+  };
+  
+  // Function to send a message with just the auto-captured image
+  const sendAutoCaptureMessage = async (imageFile: File) => {
+    // Create a silent user message (we don't add this to the display)
+    const userMessage = {
+      role: "user",
+      content: "[Auto emotion capture]",
+    };
+    
+    const updatedMessages = [...chatMessages, userMessage];
+    
+    // Indicate loading state
+    setLoading(true);
+    
+    try {
+      // Convert messages to the format expected by the API
+      const apiMessages = updatedMessages.map(msg => ({
+        role: msg.role,
+        content: msg.content,
+      }));
+      
+      // Send the auto-captured image to the mental health service
+      const response = await azureAIServices.mentalHealth.continueConversation(
+        apiMessages, 
+        imageFile
+      );
+      
+      // Add assistant's response to chat
+      setChatMessages([
+        ...chatMessages, // Skip adding the silent user message to UI
+        {
+          role: "assistant",
+          content: response.message,
+          timestamp: new Date(),
+        }
+      ]);
+      
+      // Clear the image
+      setChatImage(null);
+      setChatImagePreview(null);
+      
+    } catch (error) {
+      console.error("Error in auto-capture analysis:", error);
+      // Don't show an error toast for auto-capture failures
+    } finally {
+      setLoading(false);
+      setCaptureInProgress(false);
+    }
+  };
+
+  // Function to enable auto-capture
+  const enableAutoCapture = () => {
+    setAutoCapture(true);
+    setShowPermissionPrompt(false);
+    
+    toast({
+      title: "Auto-Capture Enabled",
+      description: "The assistant will periodically capture photos to better analyze your emotional state.",
+    });
+  };
+  
+  // Function to disable auto-capture
+  const disableAutoCapture = () => {
+    setAutoCapture(false);
+    setShowPermissionPrompt(false);
+  };
+
   // Cleanup on unmount
   useEffect(() => {
     return () => {
@@ -467,12 +652,36 @@ const Chat = () => {
         ) : (
           <Card className="max-w-4xl mx-auto backdrop-blur-sm bg-white/80 dark:bg-gray-900/80 border-gray-200 dark:border-gray-700 shadow-lg">
             <CardHeader>
-              <CardTitle>Mental Health Assessment</CardTitle>
-              <CardDescription>
-                Chat with our AI assistant about how you're feeling. You can also share photos to help the assistant better understand your emotional state.
-              </CardDescription>
+              <div className="flex justify-between items-center">
+                <div>
+                  <CardTitle>Mental Health Assessment</CardTitle>
+                  <CardDescription>
+                    Chat with our AI assistant about how you're feeling. You can also share photos to help the assistant better understand your emotional state.
+                  </CardDescription>
+                </div>
+                {autoCapture && (
+                  <div className="flex items-center gap-2 bg-blue-100 dark:bg-blue-900/50 px-3 py-1 rounded-full text-xs text-blue-800 dark:text-blue-200">
+                    <CameraIcon className="h-3 w-3" />
+                    <span>Enhanced Analysis On</span>
+                    <Button 
+                      variant="ghost" 
+                      size="icon" 
+                      className="h-5 w-5 rounded-full" 
+                      onClick={() => setAutoCapture(false)}
+                    >
+                      <XIcon className="h-3 w-3" />
+                    </Button>
+                  </div>
+                )}
+              </div>
             </CardHeader>
             <CardContent>
+              {/* Hidden video and canvas elements for auto-capture */}
+              <div className="hidden">
+                <video ref={videoRef} autoPlay playsInline muted />
+                <canvas ref={canvasRef} />
+              </div>
+              
               {/* Chat Messages Display */}
               <div className="h-[400px] overflow-y-auto bg-gray-50 dark:bg-gray-800 rounded-md p-4 mb-4">
                 {chatMessages.map((message, index) => (
@@ -530,6 +739,7 @@ const Chat = () => {
                       sendMessage();
                     }
                   }}
+                  disabled={loading || captureInProgress}
                 />
                 <div className="flex flex-col gap-2">
                   <Button 
@@ -538,6 +748,7 @@ const Chat = () => {
                     variant="outline"
                     onClick={openChatFileSelector}
                     title="Upload Image"
+                    disabled={loading || captureInProgress}
                   >
                     <UploadIcon className="h-4 w-4" />
                   </Button>
@@ -547,14 +758,31 @@ const Chat = () => {
                     variant="outline"
                     onClick={openCamera}
                     title="Take Photo"
+                    disabled={loading || captureInProgress}
                   >
                     <CameraIcon className="h-4 w-4" />
                   </Button>
+                  {!autoCapture && (
+                    <Button 
+                      type="button" 
+                      size="icon"
+                      variant="outline"
+                      onClick={() => setAutoCapture(true)}
+                      title="Enable Enhanced Analysis"
+                      disabled={loading || captureInProgress}
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M12 2a5 5 0 0 0-5 5v2a5 5 0 0 0 10 0V7a5 5 0 0 0-5-5Z"></path>
+                        <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+                        <line x1="12" y1="19" x2="12" y2="22"></line>
+                      </svg>
+                    </Button>
+                  )}
                   <Button 
                     type="button" 
                     size="icon"
                     onClick={sendMessage}
-                    disabled={loading || (!currentMessage.trim() && !chatImage)}
+                    disabled={loading || captureInProgress || (!currentMessage.trim() && !chatImage)}
                     title="Send Message"
                   >
                     <ArrowRightIcon className="h-4 w-4" />
@@ -576,14 +804,44 @@ const Chat = () => {
                   For serious concerns, please consult a qualified healthcare provider or emergency services.
                 </p>
                 <p className="mt-1">
-                  Your conversation is processed by Azure AI services to provide personalized support. 
-                  Photos help the assistant better understand your emotional state, but sharing them is completely optional.
+                  {autoCapture ? (
+                    <>Enhanced emotional analysis is active. The assistant analyzes your facial expressions between responses to provide better support.</>
+                  ) : (
+                    <>Your conversation is processed by Azure AI services to provide personalized support. Enable enhanced analysis for better emotional assessment.</>
+                  )}
                 </p>
               </div>
             </CardContent>
           </Card>
         )}
       </div>
+
+      {/* Permission Dialog */}
+      <Dialog open={showPermissionPrompt} onOpenChange={setShowPermissionPrompt}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Enable Enhanced Emotional Analysis</DialogTitle>
+            <DialogDescription>
+              For better mental health assessment, this assistant can capture facial expressions after each response.
+              This helps provide more accurate emotional support. All images are processed securely and not stored.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="p-4 bg-amber-50 dark:bg-amber-950/30 rounded-md">
+            <p className="text-sm text-amber-800 dark:text-amber-200">
+              This is completely optional but recommended for more personalized support.
+              You can disable this feature at any time.
+            </p>
+          </div>
+          <DialogFooter className="flex flex-col sm:flex-row gap-2 sm:gap-0 sm:justify-between">
+            <Button variant="outline" onClick={() => disableAutoCapture()}>
+              No Thanks
+            </Button>
+            <Button onClick={() => enableAutoCapture()}>
+              Enable Enhanced Analysis
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Camera Modal */}
       <Dialog open={isCameraOpen} onOpenChange={(open) => !open && closeCamera()}>
