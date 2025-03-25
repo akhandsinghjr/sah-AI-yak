@@ -4,8 +4,12 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { UploadIcon, CameraIcon, XIcon, ArrowRightIcon, HeartPulseIcon, ImageIcon } from "lucide-react";
+import { UploadIcon, CameraIcon, XIcon, ArrowRightIcon, HeartPulseIcon, ImageIcon, Volume2Icon, MicIcon } from "lucide-react";
 import { azureAIServices } from "@/services/azure-ai";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
+import SpeechPlayback from "@/components/SpeechPlayback";
+import SpeechInput from "@/components/SpeechInput";
 
 const Chat = () => {
   // State for chat functionality
@@ -32,6 +36,11 @@ const Chat = () => {
   const [isAutoCaptureInProgress, setIsAutoCaptureInProgress] = useState(false);
   const [shouldSendAfterCapture, setShouldSendAfterCapture] = useState(false);
   const [pendingMessage, setPendingMessage] = useState("");
+
+  // Add state for speech functionality
+  const [useSpeech, setUseSpeech] = useState(true);
+  const [activeAudioMessage, setActiveAudioMessage] = useState<string | null>(null);
+  const [selectedVoice, setSelectedVoice] = useState<string>("en-US-JennyMultilingualNeural");
 
   // Scroll to bottom when messages update
   useEffect(() => {
@@ -259,7 +268,7 @@ const Chat = () => {
     sendMessageWithImage(messageText, null);
   };
 
-  // Improved sendMessageWithImage function that doesn't re-add the user message
+  // Improved sendMessageWithImage function with enhanced emotional discrepancy detection
   const sendMessageWithImage = async (messageText: string, imageFile: File | null) => {
     // Don't add another user message, we already did that in sendMessage
     // Just set loading state
@@ -272,7 +281,7 @@ const Chat = () => {
         content: msg.content,
       }));
       
-      // Add special instructions for the AI to check for inconsistencies 
+      // Add enhanced special instructions for the AI to check for inconsistencies 
       // between the text and facial expression
       if (imageFile) {
         apiMessages.push({
@@ -280,11 +289,32 @@ const Chat = () => {
           content: `For this message, the user has shared both text and a facial image. 
             The user's message was: "${messageText}"
             
-            In addition to responding to their message, please analyze if there appears to be 
-            any inconsistency between their text sentiment and facial expression. 
-            For example, if they claim to be happy but look sad, or say they're fine but appear distressed, 
-            gently acknowledge this inconsistency in your response.
-            Don't explicitly say you're comparing text and image, but incorporate your observations naturally.`
+            IMPORTANT INSTRUCTIONS FOR EMOTIONAL ANALYSIS:
+            
+            1. Carefully analyze the user's facial expression, looking for signs of:
+               - Sadness (downturned mouth, drooping eyelids, furrowed brow)
+               - Anxiety (tense features, worried eyes, tight jaw)
+               - Fatigue (dark circles, slow blinking, lack of energy)
+               - Forced happiness (smile that doesn't reach the eyes)
+               - Emotional flatness (blank expression, minimal movement)
+            
+            2. Compare these visual cues with the emotional tone of their text message
+            
+            3. Be particularly vigilant if:
+               - They claim to be "fine" or "okay" but look troubled
+               - They minimize problems while showing signs of distress
+               - Their emotional expression doesn't match their words
+               - They use positive language but appear exhausted or sad
+            
+            4. When you detect such inconsistencies (and assume they often exist),
+               gently acknowledge this in your response without directly stating
+               you're analyzing their photo. Use phrases like:
+               
+               "I sense there might be more to what you're feeling..."
+               "I'm noticing some additional emotions that might be worth exploring..."
+               "Your experience seems more complex than words alone can express..."
+               
+            Aim to create a safe space for them to express their true feelings.`
         });
       }
       
@@ -295,14 +325,20 @@ const Chat = () => {
       );
       
       // Add assistant's response to chat
+      const assistantResponse = response.message;
       setChatMessages(prevMessages => [
         ...prevMessages,
         {
           role: "assistant",
-          content: response.message,
+          content: assistantResponse,
           timestamp: new Date(),
         }
       ]);
+      
+      // If speech is enabled, set the message to be spoken
+      if (useSpeech) {
+        setActiveAudioMessage(assistantResponse);
+      }
       
       // Clear any uploaded image after sending
       setChatImage(null);
@@ -603,13 +639,21 @@ const Chat = () => {
     };
   }, []);
 
+  // Handle speech input from user
+  const handleSpeechInput = (text: string) => {
+    if (text.trim()) {
+      setCurrentMessage(text);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-800 py-12 px-4">
       <div className="max-w-4xl mx-auto">
         <div className="text-center mb-8">
-        <h1 className="text-7xl font-bold mb-4 text-gray-900 dark:text-gray-50">सह-<span className="text-yellow-500">AI</span>-यक</h1>
+          <h1 className="text-7xl font-bold mb-4 text-gray-900 dark:text-gray-50">सह-<span className="text-yellow-500">AI</span>-यक</h1>
           <p className="text-2xl text-gray-600 dark:text-gray-300 max-w-2xl mx-auto mb-10">
-          Because mental health matters—<span className="text-yellow-500 font-bold">let's talk!</span></p>
+            Because mental health matters—<span className="text-yellow-500 font-bold">let's talk!</span>
+          </p>
           <h1 className="text-3xl font-bold mb-4 text-gray-900 dark:text-gray-50 flex items-center justify-center gap-2">
             <HeartPulseIcon className="h-8 w-8 text-red-500" />
             Mental Health Assistant
@@ -652,6 +696,37 @@ const Chat = () => {
                     If you're experiencing a mental health crisis, please contact a qualified healthcare provider or emergency services.
                   </p>
                 </div>
+                {/* Replace avatar toggle with speech toggle */}
+                <div className="flex items-center space-x-2 mt-3">
+                  <Switch 
+                    id="speech-mode" 
+                    checked={useSpeech} 
+                    onCheckedChange={setUseSpeech} 
+                  />
+                  <Label htmlFor="speech-mode">Enable voice responses</Label>
+                </div>
+                
+                {/* Voice selection if enabled */}
+                {useSpeech && (
+                  <div className="mt-1">
+                    <Label htmlFor="voice-selection" className="text-sm block mb-1">Select voice:</Label>
+                    <div className="grid grid-cols-2 gap-2">
+                      {[
+                        { id: "en-US-JennyMultilingualNeural", name: "Jenny (Female)" },
+                        { id: "en-US-GuyMultilingualNeural", name: "Guy (Male)" }
+                      ].map(voice => (
+                        <Button 
+                          key={voice.id}
+                          variant={selectedVoice === voice.id ? "default" : "outline"}
+                          className="text-xs py-1 h-auto"
+                          onClick={() => setSelectedVoice(voice.id)}
+                        >
+                          {voice.name}
+                        </Button>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             </CardContent>
             <CardFooter>
@@ -684,7 +759,7 @@ const Chat = () => {
                 <div>
                   <CardTitle>Mental Health Assessment</CardTitle>
                   <CardDescription>
-                    Chat with our AI assistant about how you're feeling. A photo will be automatically captured with each message for better emotional analysis.
+                    Chat with our AI assistant about how you're feeling. Photos are analyzed to detect potential inconsistencies between your expressions and words.
                   </CardDescription>
                 </div>
                 {isAutoCaptureInProgress && (
@@ -702,6 +777,18 @@ const Chat = () => {
                 <canvas ref={canvasRef} />
               </div>
               
+              {/* Speech playback when active */}
+              {useSpeech && activeAudioMessage && (
+                <div className="mb-4">
+                  <SpeechPlayback 
+                    text={activeAudioMessage}
+                    voice={selectedVoice}
+                    autoPlay={true}
+                    onComplete={() => setActiveAudioMessage(null)}
+                  />
+                </div>
+              )}
+              
               {/* Chat Messages Display - Updated with loading indicators */}
               <div className="h-[400px] overflow-y-auto bg-gray-50 dark:bg-gray-800 rounded-md p-4 mb-4">
                 {chatMessages.map((message, index) => (
@@ -713,20 +800,35 @@ const Chat = () => {
                         : 'pl-2 border-l-2 border-emerald-400 bg-emerald-50/30 dark:bg-emerald-900/10 rounded-r-md'
                     }`}
                   >
-                    <div className="text-xs text-gray-500 mb-1 flex items-center">
-                      {message.role === 'assistant' ? 'Mental Health Assistant' : 'You'} 
-                      {message.timestamp && ` • ${message.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`}
-                      {message.hasImage && (
-                        <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-100">
-                          <ImageIcon className="h-3 w-3 mr-1" />
-                          Photo shared
-                        </span>
-                      )}
-                      {message.pendingImage && (
-                        <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-100 animate-pulse">
-                          <CameraIcon className="h-3 w-3 mr-1" />
-                          Taking photo...
-                        </span>
+                    <div className="text-xs text-gray-500 mb-1 flex items-center justify-between">
+                      <div className="flex items-center">
+                        {message.role === 'assistant' ? 'Mental Health Assistant' : 'You'} 
+                        {message.timestamp && ` • ${message.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`}
+                        {message.hasImage && (
+                          <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-100">
+                            <ImageIcon className="h-3 w-3 mr-1" />
+                            Photo shared
+                          </span>
+                        )}
+                        {message.pendingImage && (
+                          <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-100 animate-pulse">
+                            <CameraIcon className="h-3 w-3 mr-1" />
+                            Taking photo...
+                          </span>
+                        )}
+                      </div>
+                      
+                      {/* Add speak button for assistant messages */}
+                      {useSpeech && message.role === 'assistant' && (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-6"
+                          onClick={() => setActiveAudioMessage(message.content)}
+                        >
+                          <Volume2Icon className="h-3 w-3 mr-1" />
+                          <span className="text-xs">Speak</span>
+                        </Button>
                       )}
                     </div>
                     <div className="text-sm whitespace-pre-wrap font-medium">
@@ -782,7 +884,55 @@ const Chat = () => {
                 </div>
               )}
               
-              {/* Input Area - Improved loading state */}
+              {/* Speech Controls */}
+              {activeAudioMessage && (
+                <div className="mb-2 flex items-center justify-end">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="text-xs"
+                    onClick={() => setActiveAudioMessage(null)}
+                  >
+                    Stop Audio
+                  </Button>
+                </div>
+              )}
+              
+              {/* Speech Toggle and Voice Selection */}
+              {!activeAudioMessage && (
+                <div className="mb-2 flex items-center justify-between">
+                  <div className="flex items-center space-x-2">
+                    <Switch
+                      id="speech-toggle"
+                      checked={useSpeech}
+                      onCheckedChange={setUseSpeech}
+                      size="sm"
+                    />
+                    <Label htmlFor="speech-toggle" className="text-xs">Voice responses</Label>
+                  </div>
+                  
+                  {useSpeech && (
+                    <div className="flex gap-1">
+                      {[
+                        { id: "en-US-JennyMultilingualNeural", name: "Jenny" },
+                        { id: "en-US-GuyMultilingualNeural", name: "Guy" }
+                      ].map(voice => (
+                        <Button 
+                          key={voice.id}
+                          variant={selectedVoice === voice.id ? "default" : "outline"}
+                          size="sm"
+                          className="text-xs py-0 h-6"
+                          onClick={() => setSelectedVoice(voice.id)}
+                        >
+                          {voice.name}
+                        </Button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+              
+              {/* Input Area with Speech-to-Text */}
               <div className="flex items-end gap-2">
                 <div className="flex-1 flex flex-col gap-1">
                   <Textarea
@@ -813,6 +963,10 @@ const Chat = () => {
                   </div>
                 </div>
                 <div className="flex flex-col gap-2">
+                  <SpeechInput
+                    onSpeechResult={handleSpeechInput}
+                    isDisabled={loading || isAutoCaptureInProgress}
+                  />
                   <Button 
                     type="button" 
                     size="icon"
@@ -873,7 +1027,7 @@ const Chat = () => {
                 />
               </div>
               
-              {/* Updated disclaimer to mention expression discrepancy detection */}
+              {/* Updated disclaimer to better explain the emotion analysis */}
               <div className="mt-4 text-xs text-gray-500 dark:text-gray-400 italic border-t pt-4 border-gray-200 dark:border-gray-700">
                 <p>
                   <strong>Note:</strong> This AI assistant is not a substitute for professional mental health care. 
@@ -881,8 +1035,9 @@ const Chat = () => {
                 </p>
                 <p className="mt-1">
                   Your conversation is processed by Azure AI services to provide personalized support. 
-                  Photos are automatically captured with each message to analyze facial expressions and detect potential 
-                  inconsistencies between your written message and emotional state.
+                  Photos are automatically captured with each message for thorough facial expression analysis.
+                  The assistant is designed to detect potential discrepancies between your words and emotional state,
+                  helping provide more accurate emotional support.
                 </p>
               </div>
             </CardContent>

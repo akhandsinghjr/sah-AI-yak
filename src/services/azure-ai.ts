@@ -10,6 +10,7 @@ const AZURE_COGNITIVE_ENDPOINT = "https://ai-aihackthonhub282549186415.cognitive
 const AZURE_OPENAI_ENDPOINT = "https://ai-aihackthonhub282549186415.openai.azure.com/";
 const AZURE_IITPHACKATHON_ENDPOINT = "https://ai-iitphackathon797339300099.openai.azure.com/";
 const AZURE_SERVICES_ENDPOINT = "https://ai-iitphackathon797339300099.services.ai.azure.com/";
+const AZURE_SPEECH_ENDPOINT = "https://eastus2.tts.speech.microsoft.com/"; // Add specific East US 2 speech endpoint
 
 // API key (corrected from the Postman examples)
 const API_KEY = "Fj1KPt7grC6bAkNja7daZUstpP8wZTXsV6Zjr2FOxkO7wsBQ5SzQJQQJ99BCACHYHv6XJ3w3AAAAACOGL3Xg";
@@ -599,18 +600,35 @@ export const imageAnalysisService = {
         };
       }
       
-      // Use the image caption as input for sentiment analysis
+      // Use the image caption as input for enhanced sentiment analysis
       const imageDescription = visionResult.description?.captions?.[0]?.text || "A person in an image";
       
-      // Ask GPT to analyze sentiment of people in the image
+      // Enhanced prompt for more nuanced emotional analysis
       const prompt = `
         Based on this description of an image: "${imageDescription}", 
-        analyze the sentiment or emotional state of any people described.
-        Focus on facial expressions, body language, and context clues.
-        Rate the emotional state on a scale of very negative to very positive,
-        and identify specific emotions if possible (joy, sadness, anger, surprise, etc.).
-        Return your analysis in JSON format with fields for 'overallSentiment' (a string like "positive", "negative", or "neutral"), 
-        'confidenceScore' (a number between 0 and 1), and 'detectedEmotions' (an array of emotion strings).
+        provide a highly detailed analysis of the emotional state of the person.
+        
+        Focus intensely on:
+        1. Facial expressions - subtle indicators of sadness, fatigue, stress, fear, or forced happiness
+        2. Body language - tension, slumped posture, protective gestures
+        3. Eye expressions - tiredness, lack of emotional connection, vacant staring
+        4. Overall energy level - exhaustion, agitation, withdrawal
+        
+        Be particularly attuned to signs of:
+        - Hidden depression or anxiety
+        - Forced smiles or performative happiness
+        - Subtle indicators of emotional distress
+        - Fatigue or burnout signatures
+        
+        Rate the emotional state on a detailed scale from very negative to very positive,
+        and identify all potential emotions present, including contradictory ones.
+        
+        Return your analysis in JSON format with fields for:
+        'overallSentiment' (a string like "positive", "negative", "neutral", or "mixed"),
+        'confidenceScore' (a number between 0 and 1),
+        'detectedEmotions' (an array of emotion strings),
+        'potentialHiddenEmotions' (an array of emotions that may be present but concealed),
+        'emotionalCongruence' (high, medium, or low - how aligned their expressions seem).
       `;
       
       const endpoint = `${AZURE_OPENAI_ENDPOINT}openai/deployments/gpt-4/chat/completions?api-version=2025-01-01-preview`;
@@ -622,7 +640,7 @@ export const imageAnalysisService = {
           messages: [
             {
               role: "system",
-              content: "You are an AI assistant that specializes in analyzing the emotional content and sentiment of people in images based on descriptions."
+              content: "You are an AI assistant specialized in psychological assessment and emotional analysis. You are trained to detect subtle emotional cues and potential signs of distress or incongruence in people's expressions and demeanor."
             },
             {
               role: "user",
@@ -630,7 +648,7 @@ export const imageAnalysisService = {
             },
           ],
           temperature: 0.3,
-          max_tokens: 250,
+          max_tokens: 350,
         }),
       });
 
@@ -712,12 +730,15 @@ export const mentalHealthService = {
     }
   },
 
-  // Continue the conversation with user input - improved to detect inconsistencies
+  // Continue the conversation with user input - enhanced for emotional discrepancy detection
   continueConversation: async (messages: Array<{role: string, content: string}>, userImage?: Blob | null) => {
     try {
       // First, process any user image if provided
       let imageAnalysis = null;
       let enhancedMessages = [...messages];
+      
+      // Debug log to see what messages we're sending
+      console.log("Mental health messages before processing:", JSON.stringify(enhancedMessages));
       
       if (userImage) {
         // Analyze the user's image for sentiment
@@ -733,40 +754,52 @@ export const mentalHealthService = {
           if (lastUserMessageIndex !== -1) {
             const userText = enhancedMessages[lastUserMessageIndex].content;
             
-            // Add system message with image analysis after the user's message
+            // Add system message with enhanced emotional discrepancy detection
             enhancedMessages.splice(lastUserMessageIndex + 1, 0, {
               role: "system",
-              content: `Image analysis: The user shared a photo of themselves. 
+              content: `Image analysis: The user has shared a photo of themselves. 
                 Visual assessment indicates the following emotional signals: ${imageAnalysis.sentiment}. 
                 Description of the image: ${imageAnalysis.visionAnalysis?.description?.captions?.[0]?.text || "Person in image"}.
                 
-                The text message from the user was: "${userText}"
+                The user's text message was: "${userText}"
                 
-                Compare the sentiment in their text with their facial expression. If there appears to be
-                an inconsistency (e.g., positive text but negative expression, or claiming to be fine but looking distressed),
-                address this gently in your response without directly stating you noticed the inconsistency.
+                IMPORTANT: Be vigilant about detecting inconsistencies between what the user says and how they look:
                 
-                For example, you might say something like "I notice there might be more to how you're feeling..." or
-                "Your expression suggests you might be experiencing more complex emotions than your words convey..."
+                1. Examine their facial expression carefully - look for signs of sadness, distress, anxiety, or fatigue
+                2. Compare their actual words with their emotional expression
+                3. Pay particular attention if they claim to be "fine", "good", "okay" or "happy" but appear otherwise
+                4. Notice if they are minimizing their problems while looking troubled
                 
-                Incorporate this analysis naturally into your response rather than explicitly stating you detected an inconsistency.`
+                When you detect such discrepancies (and err on the side of suspecting them), compassionately address them in your response with statements like:
+                - "I notice there might be more to how you're feeling..."
+                - "Your expression suggests you might be experiencing different emotions than your words convey"
+                - "I sense there might be deeper feelings you're not expressing in words"
+                
+                Avoid directly stating you're comparing their text and image, but gently encourage deeper emotional honesty.`
             });
           }
         }
       }
       
-      // Now continue the conversation with enhanced context
+      // Now continue the conversation with enhanced context and more vigilant analysis
       const endpoint = `${AZURE_OPENAI_ENDPOINT}openai/deployments/gpt-4/chat/completions?api-version=2025-01-01-preview`;
       
-      // Add the mental health system prompt to guide the conversation
+      // Add the enhanced mental health system prompt to guide the conversation
       const systemPrompt = {
         role: "system",
-        content: `You are an AI mental health assistant. Your purpose is to provide supportive conversation, 
-        preliminary assessment, and general wellness advice. Keep your responses compassionate, non-judgmental, 
-        and concise (under 150 words). If the user has shared a photo of themselves, subtly incorporate insights 
-        from the visual cues including any apparent inconsistencies between their text and facial expressions.
-        If you notice a mismatch between what they say and how they appear, gently explore this without being confrontational.
-        Suggest mindfulness techniques or coping strategies when appropriate.
+        content: `You are an AI mental health assistant that prioritizes identifying hidden distress. Your purpose is to provide 
+        supportive conversation while carefully watching for signs of concealed emotional struggle.
+        
+        Pay special attention to potential inconsistencies between what users say and how they appear in shared photos.
+        Most people tend to hide their true emotional state with phrases like "I'm fine" or "just tired" - be gently
+        suspicious of such statements, especially when photos suggest otherwise.
+        
+        When a user shares an image, carefully analyze their facial expression, posture, and apparent energy level,
+        and compassionately note if these seem inconsistent with their words. Don't explicitly mention you're comparing
+        text and image, but incorporate these observations naturally in your responses.
+        
+        Keep your responses compassionate, non-judgmental, and concise (under 150 words). Suggest tailored mindfulness
+        techniques or coping strategies when appropriate.
         
         Important: Always clarify you are not a replacement for professional mental health services.`
       };
@@ -774,7 +807,7 @@ export const mentalHealthService = {
       const fullMessages = [systemPrompt, ...enhancedMessages];
       
       // Log for debugging
-      console.log("Sending enhanced messages to GPT:", fullMessages);
+      console.log("Sending enhanced messages to GPT:", JSON.stringify(fullMessages));
       
       const response = await fetch(endpoint, {
         method: "POST",
@@ -807,6 +840,209 @@ export const mentalHealthService = {
   }
 };
 
+/**
+ * Speech Service
+ * Text-to-speech and speech-to-text capabilities
+ */
+export const speechService = {
+  textToSpeech: async (text: string, voiceName: string = "en-US-JennyMultilingualNeural") => {
+    try {
+      // Using Azure Speech service for text-to-speech with East US 2 region
+      const endpoint = `${AZURE_SPEECH_ENDPOINT}cognitiveservices/v1`;
+      
+      console.log("Sending text-to-speech request to:", endpoint);
+      
+      // Prepare SSML (Speech Synthesis Markup Language)
+      const ssml = `
+        <speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xmlns:mstts="http://www.w3.org/2001/mstts" xml:lang="en-US">
+          <voice name="${voiceName}">
+            <mstts:express-as style="empathetic">
+              ${text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&apos;')}
+            </mstts:express-as>
+          </voice>
+        </speak>
+      `;
+      
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers: {
+          "Ocp-Apim-Subscription-Key": API_KEY,
+          "Content-Type": "application/ssml+xml",
+          "X-Microsoft-OutputFormat": "audio-16khz-128kbitrate-mono-mp3",
+          "User-Agent": "sahAIyak-mental-health-assistant"
+        },
+        body: ssml
+      });
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error("Text-to-speech complete error details:", {
+          status: response.status,
+          statusText: response.statusText,
+          errorText,
+          endpoint
+        });
+        throw new Error(`Text-to-speech error: ${response.status} - ${errorText}`);
+      }
+      
+      // Get the audio data as arrayBuffer
+      const audioData = await response.arrayBuffer();
+      
+      // Convert to base64 for easier handling
+      const base64Audio = btoa(
+        new Uint8Array(audioData)
+          .reduce((data, byte) => data + String.fromCharCode(byte), '')
+      );
+      
+      return {
+        audioData,
+        audioUrl: `data:audio/mp3;base64,${base64Audio}`,
+        success: true
+      };
+    } catch (error) {
+      console.error("Error in text-to-speech conversion:", error);
+      toast.error("Text-to-Speech Error", {
+        description: "Unable to convert text to speech. Please try again later.",
+      });
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Unknown error"
+      };
+    }
+  },
+  
+  getAvatarSpeech: async (text: string, avatarType: string = "lisa") => {
+    try {
+      // First try using the talking avatar service
+      console.log("Attempting to generate talking avatar with type:", avatarType);
+      
+      // Create the speaking avatar
+      const endpoint = `${AZURE_SERVICES_ENDPOINT}talkingavatars/v0.1/generate`;
+      
+      // Check if service endpoint is properly configured
+      if (!AZURE_SERVICES_ENDPOINT) {
+        throw new Error("Talking Avatars service endpoint is not configured");
+      }
+      
+      // Prepare the request payload
+      const payload = {
+        "talkingAvatar": {
+          "source": {
+            "type": "library-avatar",
+            "libraryAvatarId": avatarType // e.g. "lisa", "guy", "hirotaka", "chrissy" are available options
+          },
+          "audioSource": {
+            "type": "tts",
+            "voice": "en-US-JennyMultilingualNeural",
+            "text": text,
+            "style": "Default"
+          },
+          "background": {
+            "color": "#000A"
+          },
+          "format": "mp4",
+          "size": {
+            "width": 1280,
+            "height": 720
+          },
+          "crop": {
+            "type": "center"
+          },
+          "subtitles": {
+            "auto": true,
+            "textSize": 24,
+            "font": "Arial"
+          }
+        }
+      };
+      
+      console.log("Sending avatar generation request to:", endpoint);
+      
+      // Make the request to the Talking Avatars API
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "api-key": API_KEY
+        },
+        body: JSON.stringify(payload)
+      });
+      
+      if (!response.ok) {
+        // If avatar fails, try simple text-to-speech instead
+        console.log("Avatar generation failed with status:", response.status);
+        const errorText = await response.text();
+        throw new Error(`Avatar generation error: ${response.status} - ${errorText}`);
+      }
+      
+      // Get the response which contains a URL to the video
+      const data = await response.json();
+      console.log("Avatar generated successfully with URL:", data.url);
+      
+      return {
+        avatarUrl: data.url,
+        success: true,
+        isAvatarVideo: true
+      };
+    } catch (error) {
+      console.error("Error generating talking avatar, falling back to speech only:", error);
+      
+      // Since the avatar generation failed, let's fallback to simple text-to-speech
+      console.log("Trying fallback to basic text-to-speech");
+      try {
+        const speechResult = await speechService.textToSpeech(text);
+        if (speechResult.success) {
+          return {
+            audioUrl: speechResult.audioUrl,
+            success: true,
+            isAvatarVideo: false,
+            fallbackReason: error instanceof Error ? error.message : "Unknown avatar error"
+          };
+        } else {
+          throw new Error("Both avatar and speech generation failed");
+        }
+      } catch (speechError) {
+        console.error("Even fallback speech failed:", speechError);
+        toast.error("Avatar and Speech Generation Error", {
+          description: "Unable to generate talking avatar or speech. Please try again later.",
+        });
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : "Unknown error",
+          fallbackError: speechError instanceof Error ? speechError.message : "Unknown speech error"
+        };
+      }
+    }
+  },
+
+  // Add a method for browser-based speech recognition (fallback)
+  startSpeechRecognition: () => {
+    // Check for browser support
+    if (!window.SpeechRecognition && !window.webkitSpeechRecognition) {
+      console.error("Speech recognition not supported in this browser");
+      return null;
+    }
+    
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    const recognition = new SpeechRecognition();
+    
+    // Configure
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.lang = 'en-US';
+    
+    return recognition;
+  }
+};
+
+// Add TypeScript declarations for the Web Speech API
+declare global {
+  interface Window {
+    SpeechRecognition?: typeof SpeechRecognition;
+    webkitSpeechRecognition?: typeof SpeechRecognition;
+  }
+}
+
 // Export a combined service object
 export const azureAIServices = {
   validateApiConnection,
@@ -819,6 +1055,7 @@ export const azureAIServices = {
   gpt: gptService,
   imageAnalysis: imageAnalysisService, // Add the new service
   mentalHealth: mentalHealthService, // Add the mental health service
+  speech: speechService, // Add the speech service
 };
 
 export default azureAIServices;
