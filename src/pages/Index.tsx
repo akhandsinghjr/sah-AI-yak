@@ -730,47 +730,9 @@ const Index = () => {
           Because mental health matters—<span className="text-yellow-500 font-bold">let's talk!</span></p>
 
             
-            {/* API Verification Section */}
-            <div className="mt-6 flex justify-center">
-              <Button 
-                onClick={verifyApiConnection} 
-                disabled={verifying}
-                variant="outline" 
-                className="flex items-center gap-2"
-              >
-                {verifying ? (
-                  <>
-                    <svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                    </svg>
-                    Verifying Connection...
-                  </>
-                ) : (
-                  <>
-                    <ShieldCheckIcon className="h-4 w-4" />
-                    Verify Azure AI Connection
-                  </>
-                )}
-              </Button>
-            </div>
+           
             
-            {isApiValid !== null && (
-              <div className="mt-2">
-                <Alert variant={isApiValid ? "default" : "destructive"} className="max-w-md mx-auto">
-                  <AlertTitle>
-                    {isApiValid 
-                      ? "Azure AI Connection Verified" 
-                      : "Azure AI Connection Failed"}
-                  </AlertTitle>
-                  <AlertDescription>
-                    {isApiValid 
-                      ? "Your Azure AI services configuration is valid." 
-                      : "Please check your Azure AI endpoint and API key configuration."}
-                  </AlertDescription>
-                </Alert>
-              </div>
-            )}
+            
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-12">
@@ -1153,21 +1115,47 @@ const Index = () => {
             </Card>
           </div>
 
-          <div className="mt-8">
-            <Alert>
-              <AlertTitle>Azure AI Services Configuration</AlertTitle>
-              <AlertDescription>
-                This application uses Azure AI Cognitive Services and Azure OpenAI services to analyze and generate content.
-                If you're experiencing issues, please verify that:
-                <ul className="list-disc ml-5 mt-2">
-                  <li>Your Azure subscription is active</li>
-                  <li>The Azure Cognitive Services and Azure OpenAI resources are properly configured</li>
-                  <li>The API key is correct across all services</li>
-                  <li>The required services have the necessary model deployments</li>
-                </ul>
-              </AlertDescription>
-            </Alert>
-          </div>
+         {/* API Verification Section */}
+         <div className="mt-6 flex justify-center">
+              <Button 
+                onClick={verifyApiConnection} 
+                disabled={verifying}
+                variant="outline" 
+                className="flex items-center gap-2"
+              >
+                {verifying ? (
+                  <>
+                    <svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    Verifying Connection...
+                  </>
+                ) : (
+                  <>
+                    <ShieldCheckIcon className="h-4 w-4" />
+                    Verify Azure AI Connection
+                  </>
+                )}
+              </Button>
+            </div>
+            {isApiValid !== null && (
+  <div className="mt-2 flex justify-center">
+    <Alert variant={isApiValid ? "default" : "destructive"} className="max-w-md text-center">
+      <AlertTitle>
+        {isApiValid 
+          ? "Azure AI Connection Verified" 
+          : "Azure AI Connection Failed"}
+      </AlertTitle>
+      <AlertDescription>
+        {isApiValid 
+          ? "Your Azure AI services configuration is valid." 
+          : "Please check your Azure AI endpoint and API key configuration."}
+      </AlertDescription>
+    </Alert>
+  </div>
+)}
+
         </div>
       </div>
 
