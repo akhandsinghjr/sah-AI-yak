@@ -9,7 +9,7 @@ import { azureAIServices } from "@/services/azure-ai";
 
 const Chat = () => {
   // State for chat functionality
-  const [chatMessages, setChatMessages] = useState<Array<{role: string, content: string, timestamp?: Date, hasImage?: boolean}>>([]);
+  const [chatMessages, setChatMessages] = useState<Array<{role: string, content: string, timestamp?: Date, hasImage?: boolean, pendingImage?: boolean}>>([]);
   const [currentMessage, setCurrentMessage] = useState("");
   const [chatImage, setChatImage] = useState<File | null>(null);
   const [chatImagePreview, setChatImagePreview] = useState<string | null>(null);
@@ -70,7 +70,7 @@ const Chat = () => {
     }
   };
 
-  // Modified sendMessage function - directly start the capture process
+  // Modified sendMessage function to ensure the text is properly sent
   const sendMessage = async () => {
     if (!currentMessage.trim() && !chatImage) {
       toast({
@@ -86,24 +86,38 @@ const Chat = () => {
       return;
     }
 
+    // Save the current message text before clearing input
+    const messageToSend = currentMessage.trim();
+    
+    // Add user message to UI immediately so user sees it right away
+    const userMessage = {
+      role: "user",
+      content: messageToSend,
+      timestamp: new Date(),
+      hasImage: !!chatImage, // Will be false for auto-capture initially
+      pendingImage: !chatImage // Mark that we're waiting for an image if not manually uploaded
+    };
+    
+    setChatMessages(prevMessages => [...prevMessages, userMessage]);
+    
+    // Clear input field
+    setCurrentMessage("");
+
     // If we already have a manually captured image, send directly
     if (chatImage) {
-      sendMessageWithImage(currentMessage, chatImage);
+      sendMessageWithImage(messageToSend, chatImage);
     } else {
       // Show that we're starting the capture process
       setIsAutoCaptureInProgress(true);
-      setPendingMessage(currentMessage);
-      
-      // Clear input immediately to show the user their message is being processed
-      setCurrentMessage("");
+      setPendingMessage(messageToSend);
       
       // Start the auto-capture process
-      autoCaptureThenSend();
+      autoCaptureThenSend(messageToSend);
     }
   };
 
-  // Improved auto-capture function
-  const autoCaptureThenSend = async () => {
+  // Improved auto-capture function with messageText parameter
+  const autoCaptureThenSend = async (messageText: string) => {
     try {
       // Close any existing stream first
       if (streamRef.current) {
@@ -191,36 +205,69 @@ const Chat = () => {
         // Clean up the camera stream
         cleanupCameraStream();
         
+        // Update the last user message to show it has an image
+        setChatMessages(prevMessages => {
+          const newMessages = [...prevMessages];
+          // Find the last user message and update it
+          for (let i = newMessages.length - 1; i >= 0; i--) {
+            if (newMessages[i].role === 'user' && newMessages[i].pendingImage) {
+              newMessages[i].hasImage = true;
+              newMessages[i].pendingImage = false;
+              break;
+            }
+          }
+          return newMessages;
+        });
+        
         // Send the message with the captured image
-        await sendMessageWithImage(pendingMessage, file);
+        await sendMessageWithImage(messageText, file);
       } else {
         throw new Error("Video element not found");
       }
     } catch (error) {
       console.error("Error in auto-capture:", error);
-      handleCaptureFailed(error instanceof Error ? error.message : "Unknown error");
+      handleCaptureFailed(error instanceof Error ? error.message : "Unknown error", messageText);
     }
   };
 
-  // Improved send message with image function
+  // Improved error handling that passes the message text
+  const handleCaptureFailed = (errorMessage: string, messageText: string) => {
+    console.error(`Auto-capture failed: ${errorMessage}`);
+    
+    toast({
+      title: "Photo Capture Failed",
+      description: `${errorMessage}. Sending message without photo.`,
+      variant: "destructive",
+    });
+    
+    cleanupCameraStream();
+    
+    // Update UI to remove pending state
+    setChatMessages(prevMessages => {
+      const newMessages = [...prevMessages];
+      // Find the last user message and update it
+      for (let i = newMessages.length - 1; i >= 0; i--) {
+        if (newMessages[i].role === 'user' && newMessages[i].pendingImage) {
+          newMessages[i].pendingImage = false;
+          break;
+        }
+      }
+      return newMessages;
+    });
+    
+    // Still send the message, just without the image
+    sendMessageWithImage(messageText, null);
+  };
+
+  // Improved sendMessageWithImage function that doesn't re-add the user message
   const sendMessageWithImage = async (messageText: string, imageFile: File | null) => {
-    // Add user message to chat
-    const userMessage = {
-      role: "user",
-      content: messageText.trim(),
-      timestamp: new Date(),
-      hasImage: !!imageFile // Track if this message had an image
-    };
-    
-    const updatedMessages = [...chatMessages, userMessage];
-    setChatMessages(updatedMessages);
-    
-    // Indicate loading state
+    // Don't add another user message, we already did that in sendMessage
+    // Just set loading state
     setLoading(true);
     
     try {
       // Convert messages to the format expected by the API
-      const apiMessages = updatedMessages.map(msg => ({
+      const apiMessages = chatMessages.map(msg => ({
         role: msg.role,
         content: msg.content,
       }));
@@ -231,6 +278,8 @@ const Chat = () => {
         apiMessages.push({
           role: "system",
           content: `For this message, the user has shared both text and a facial image. 
+            The user's message was: "${messageText}"
+            
             In addition to responding to their message, please analyze if there appears to be 
             any inconsistency between their text sentiment and facial expression. 
             For example, if they claim to be happy but look sad, or say they're fine but appear distressed, 
@@ -246,8 +295,8 @@ const Chat = () => {
       );
       
       // Add assistant's response to chat
-      setChatMessages([
-        ...updatedMessages,
+      setChatMessages(prevMessages => [
+        ...prevMessages,
         {
           role: "assistant",
           content: response.message,
@@ -269,24 +318,6 @@ const Chat = () => {
     } finally {
       setLoading(false);
       setPendingMessage("");
-    }
-  };
-
-  // Improved error handling for capture failures
-  const handleCaptureFailed = (errorMessage: string) => {
-    console.error(`Auto-capture failed: ${errorMessage}`);
-    
-    toast({
-      title: "Photo Capture Failed",
-      description: `${errorMessage}. Sending message without photo.`,
-      variant: "destructive",
-    });
-    
-    cleanupCameraStream();
-    
-    // Still send the message, just without the image
-    if (pendingMessage) {
-      sendMessageWithImage(pendingMessage, null);
     }
   };
 
@@ -671,12 +702,16 @@ const Chat = () => {
                 <canvas ref={canvasRef} />
               </div>
               
-              {/* Chat Messages Display - Updated to show image icons for messages with images */}
+              {/* Chat Messages Display - Updated with loading indicators */}
               <div className="h-[400px] overflow-y-auto bg-gray-50 dark:bg-gray-800 rounded-md p-4 mb-4">
                 {chatMessages.map((message, index) => (
                   <div 
                     key={index} 
-                    className={`mb-4 ${message.role === 'assistant' ? 'pl-2 border-l-2 border-primary' : 'pl-2 border-l-2 border-gray-300'}`}
+                    className={`mb-4 ${
+                      message.role === 'assistant' 
+                        ? 'pl-2 border-l-2 border-primary' 
+                        : 'pl-2 border-l-2 border-emerald-400 bg-emerald-50/30 dark:bg-emerald-900/10 rounded-r-md'
+                    }`}
                   >
                     <div className="text-xs text-gray-500 mb-1 flex items-center">
                       {message.role === 'assistant' ? 'Mental Health Assistant' : 'You'} 
@@ -687,8 +722,16 @@ const Chat = () => {
                           Photo shared
                         </span>
                       )}
+                      {message.pendingImage && (
+                        <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-100 animate-pulse">
+                          <CameraIcon className="h-3 w-3 mr-1" />
+                          Taking photo...
+                        </span>
+                      )}
                     </div>
-                    <div className="text-sm whitespace-pre-wrap">{message.content}</div>
+                    <div className="text-sm whitespace-pre-wrap font-medium">
+                      {message.content}
+                    </div>
                   </div>
                 ))}
                 {loading && (
@@ -696,10 +739,25 @@ const Chat = () => {
                     <div className="text-xs text-gray-500">Assistant is analyzing...</div>
                   </div>
                 )}
+                {isAutoCaptureInProgress && (
+                  <div className="flex justify-center my-2">
+                    <div className="flex flex-col items-center gap-2 px-4 py-2 bg-blue-50 dark:bg-blue-900/20 rounded-full">
+                      <div className="flex gap-2 items-center">
+                        <svg className="animate-spin h-4 w-4 text-blue-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                        <span className="text-xs text-blue-600 dark:text-blue-300">
+                          Capturing your photo...
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                )}
                 <div ref={messagesEndRef} />
               </div>
               
-              {/* Image Preview - Updated with clearer messaging */}
+              {/* Enhanced image preview with loading indicator */}
               {chatImagePreview && (
                 <div className="relative mb-2">
                   <div className="relative rounded-md overflow-hidden border border-gray-200 dark:border-gray-700 max-h-[120px] max-w-[200px]">
@@ -724,13 +782,13 @@ const Chat = () => {
                 </div>
               )}
               
-              {/* Input Area - Updated to improve loading state display */}
+              {/* Input Area - Improved loading state */}
               <div className="flex items-end gap-2">
                 <div className="flex-1 flex flex-col gap-1">
                   <Textarea
                     placeholder={
                       isAutoCaptureInProgress 
-                        ? "Capturing your facial expression for analysis..." 
+                        ? "Taking your photo... Please wait..." 
                         : loading 
                           ? "Processing your message..." 
                           : "Type your message here..."
@@ -750,8 +808,8 @@ const Chat = () => {
                     {chatImage 
                       ? "A photo is already attached to this message" 
                       : isAutoCaptureInProgress
-                        ? "Capturing your facial expression to analyze with your message..."
-                        : "A photo of you will be automatically captured when you send your message"}
+                        ? "Taking your photo to analyze with your message..."
+                        : "A photo will be captured automatically when you send a message"}
                   </div>
                 </div>
                 <div className="flex flex-col gap-2">
@@ -784,15 +842,23 @@ const Chat = () => {
                       loading 
                         ? "Processing..." 
                         : isAutoCaptureInProgress 
-                          ? "Capturing..." 
+                          ? "Taking photo..." 
                           : "Send Message"
                     }
                   >
                     {loading || isAutoCaptureInProgress ? (
-                      <svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                      </svg>
+                      <div className="relative">
+                        <svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                        {isAutoCaptureInProgress && (
+                          <span className="absolute -top-1 -right-1 flex h-2 w-2">
+                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                            <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500"></span>
+                          </span>
+                        )}
+                      </div>
                     ) : (
                       <ArrowRightIcon className="h-4 w-4" />
                     )}
