@@ -401,7 +401,10 @@ const Chat = () => {
     <div className="min-h-screen bg-gradient-to-b from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-800 py-12 px-4">
       <div className="max-w-4xl mx-auto">
         <div className="text-center mb-8">
-          <h1 className="text-4xl font-bold mb-4 text-gray-900 dark:text-gray-50 flex items-center justify-center gap-2">
+        <h1 className="text-7xl font-bold mb-4 text-gray-900 dark:text-gray-50">सह-<span className="text-yellow-500">AI</span>-यक</h1>
+          <p className="text-2xl text-gray-600 dark:text-gray-300 max-w-2xl mx-auto mb-10">
+          Because mental health matters—<span className="text-yellow-500 font-bold">let's talk!</span></p>
+          <h1 className="text-3xl font-bold mb-4 text-gray-900 dark:text-gray-50 flex items-center justify-center gap-2">
             <HeartPulseIcon className="h-8 w-8 text-red-500" />
             Mental Health Assistant
           </h1>
