@@ -73,7 +73,7 @@ export const validateApiConnection = async () => {
  * Analyze images for objects, tags, faces, adult content, etc.
  */
 export const computerVisionService = {
-  analyzeImage: async (imageUrl: string) => {
+  analyzeImage: async (imageInput: Blob | File | string) => {
     const endpoint = `${AZURE_COGNITIVE_ENDPOINT}vision/v3.2/analyze`;
     const params = new URLSearchParams({
       visualFeatures: "Categories,Tags,Description,Faces,Objects,Adult",
@@ -83,11 +83,30 @@ export const computerVisionService = {
     try {
       console.log("Sending image analysis request to:", `${endpoint}?${params}`);
       
-      const response = await fetch(`${endpoint}?${params}`, {
-        method: "POST",
-        headers: getCognitiveHeaders(),
-        body: JSON.stringify({ url: imageUrl }),
-      });
+      let response;
+      
+      // Check if imageInput is a string (URL)
+      if (typeof imageInput === 'string') {
+        // If it's a URL, send it as JSON
+        response = await fetch(`${endpoint}?${params}`, {
+          method: "POST",
+          headers: {
+            "Ocp-Apim-Subscription-Key": API_KEY,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ url: imageInput }),
+        });
+      } else {
+        // If it's a Blob or File, send as binary
+        response = await fetch(`${endpoint}?${params}`, {
+          method: "POST",
+          headers: {
+            "Ocp-Apim-Subscription-Key": API_KEY,
+            "Content-Type": (imageInput as Blob).type || "application/octet-stream",
+          },
+          body: imageInput,
+        });
+      }
 
       console.log("Image analysis response status:", response.status);
       
@@ -140,17 +159,17 @@ export const contentSafetyService = {
     }
   },
 
-  analyzeImage: async (imageUrl: string) => {
+  analyzeImage: async (image: Blob) => { // Changed parameter from imageUrl:string to image:Blob
     const endpoint = `${AZURE_COGNITIVE_ENDPOINT}contentsafety/image:analyze?api-version=2023-10-01`;
 
     try {
       const response = await fetch(endpoint, {
         method: "POST",
-        headers: getCognitiveHeaders(),
-        body: JSON.stringify({
-          image: { url: imageUrl },
-          categories: ["Hate", "SelfHarm", "Sexual", "Violence"],
-        }),
+        headers: {
+          "Ocp-Apim-Subscription-Key": API_KEY,
+          "Content-Type": image.type || "application/octet-stream"
+        },
+        body: image,
       });
 
       if (!response.ok) {
@@ -558,6 +577,220 @@ export const tokenService = {
   },
 };
 
+/**
+ * Image Analysis Service
+ * Enhanced image analysis including sentiment of people in the image
+ */
+export const imageAnalysisService = {
+  analyzeImageSentiment: async (imageInput: Blob | File | string) => {
+    try {
+      // First, analyze the image with Computer Vision
+      const visionResult = await computerVisionService.analyzeImage(imageInput);
+      
+      // Check if there are people in the image
+      const hasPeople = visionResult.description?.tags?.some(tag => 
+        ['person', 'people', 'man', 'woman', 'child', 'face', 'human'].includes(tag.toLowerCase())
+      ) || false;
+      
+      if (!hasPeople) {
+        return {
+          sentiment: "No people detected in the image",
+          analysis: visionResult
+        };
+      }
+      
+      // Use the image caption as input for sentiment analysis
+      const imageDescription = visionResult.description?.captions?.[0]?.text || "A person in an image";
+      
+      // Ask GPT to analyze sentiment of people in the image
+      const prompt = `
+        Based on this description of an image: "${imageDescription}", 
+        analyze the sentiment or emotional state of any people described.
+        Focus on facial expressions, body language, and context clues.
+        Rate the emotional state on a scale of very negative to very positive,
+        and identify specific emotions if possible (joy, sadness, anger, surprise, etc.).
+        Return your analysis in JSON format with fields for 'overallSentiment' (a string like "positive", "negative", or "neutral"), 
+        'confidenceScore' (a number between 0 and 1), and 'detectedEmotions' (an array of emotion strings).
+      `;
+      
+      const endpoint = `${AZURE_OPENAI_ENDPOINT}openai/deployments/gpt-4/chat/completions?api-version=2025-01-01-preview`;
+      
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers: getOpenAIHeaders(),
+        body: JSON.stringify({
+          messages: [
+            {
+              role: "system",
+              content: "You are an AI assistant that specializes in analyzing the emotional content and sentiment of people in images based on descriptions."
+            },
+            {
+              role: "user",
+              content: prompt,
+            },
+          ],
+          temperature: 0.3,
+          max_tokens: 250,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Image sentiment analysis error: ${response.status}`);
+      }
+
+      const gptResponse = await response.json();
+      
+      return {
+        sentiment: gptResponse.choices[0].message.content,
+        visionAnalysis: visionResult,
+        gptResponse: gptResponse
+      };
+    } catch (error) {
+      console.error("Error analyzing image sentiment:", error);
+      toast.error("Image Sentiment Analysis Error", {
+        description: "Unable to analyze sentiment in the image.",
+      });
+      throw error;
+    }
+  },
+};
+
+/**
+ * Mental Health Service
+ * Specialized AI service for mental health assessment and assistance
+ */
+export const mentalHealthService = {
+  // Initialize the conversation with the mental health expert
+  startConversation: async () => {
+    const endpoint = `${AZURE_OPENAI_ENDPOINT}openai/deployments/gpt-4/chat/completions?api-version=2025-01-01-preview`;
+    
+    try {
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers: getOpenAIHeaders(),
+        body: JSON.stringify({
+          messages: [
+            {
+              role: "system",
+              content: `You are an AI mental health assistant. Your purpose is to provide supportive conversation, 
+              preliminary assessment, and general wellness advice. Begin by introducing yourself and asking 2-3 
+              gentle screening questions about how the person is feeling today, their sleep patterns, and stress levels. 
+              Keep your responses compassionate, non-judgmental, and concise (under 100 words). After initial questions, 
+              suggest that a photo could help you better understand their current state, but make this optional. 
+              Important: Always clarify you are not a replacement for professional mental health services.`
+            },
+            {
+              role: "assistant",
+              content: "Hello, I'm your AI mental health assistant. I'm here to listen and provide support, though I'm not a replacement for professional mental healthcare. How are you feeling today? Could you share a bit about your recent sleep patterns and current stress levels? Your responses will help me better understand how to support you."
+            }
+          ],
+          temperature: 0.7,
+          max_tokens: 250,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Mental health service error: ${response.status}`);
+      }
+
+      const responseData = await response.json();
+      return {
+        messages: [
+          {
+            role: "assistant",
+            content: "Hello, I'm your AI mental health assistant. I'm here to listen and provide support, though I'm not a replacement for professional mental healthcare. How are you feeling today? Could you share a bit about your recent sleep patterns and current stress levels? Your responses will help me better understand how to support you."
+          }
+        ],
+        rawResponse: responseData
+      };
+    } catch (error) {
+      console.error("Error starting mental health conversation:", error);
+      toast.error("Service Error", {
+        description: "Unable to start mental health assessment. Please try again later.",
+      });
+      throw error;
+    }
+  },
+
+  // Continue the conversation with user input
+  continueConversation: async (messages: Array<{role: string, content: string}>, userImage?: Blob | null) => {
+    try {
+      // First, process any user image if provided
+      let imageAnalysis = null;
+      let enhancedMessages = [...messages];
+      
+      if (userImage) {
+        // Analyze the user's image for sentiment
+        imageAnalysis = await imageAnalysisService.analyzeImageSentiment(userImage);
+        
+        // Add image description and analysis to the conversation context
+        if (imageAnalysis && imageAnalysis.sentiment) {
+          // Find the last user message to attach the image analysis to
+          const lastUserMessageIndex = enhancedMessages.findIndex(
+            (msg, i, arr) => msg.role === "user" && (i === arr.length - 1 || arr[i + 1].role === "assistant")
+          );
+          
+          if (lastUserMessageIndex !== -1) {
+            // Add system message with image analysis after the user's message
+            enhancedMessages.splice(lastUserMessageIndex + 1, 0, {
+              role: "system",
+              content: `Image analysis: The user shared a photo of themselves. 
+                Visual assessment indicates the following emotional signals: ${imageAnalysis.sentiment}. 
+                Description of the image: ${imageAnalysis.visionAnalysis?.description?.captions?.[0]?.text || "Person in image"}.
+                Consider this visual information in your response, but don't explicitly mention that you've analyzed their photo.`
+            });
+          }
+        }
+      }
+      
+      // Now continue the conversation with enhanced context
+      const endpoint = `${AZURE_OPENAI_ENDPOINT}openai/deployments/gpt-4/chat/completions?api-version=2025-01-01-preview`;
+      
+      // Add the mental health system prompt to guide the conversation
+      const systemPrompt = {
+        role: "system",
+        content: `You are an AI mental health assistant. Your purpose is to provide supportive conversation, 
+        preliminary assessment, and general wellness advice. Keep your responses compassionate, non-judgmental, 
+        and concise (under 150 words). If the user has shared a photo of themselves, subtly incorporate insights 
+        from the visual cues without explicitly mentioning the image analysis. Suggest mindfulness techniques or 
+        coping strategies when appropriate. After a few exchanges, gently ask if they would like to share a photo 
+        to help you better understand their current state, but make this optional.
+        Important: Always clarify you are not a replacement for professional mental health services.`
+      };
+      
+      const fullMessages = [systemPrompt, ...enhancedMessages];
+      
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers: getOpenAIHeaders(),
+        body: JSON.stringify({
+          messages: fullMessages,
+          temperature: 0.7,
+          max_tokens: 350,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Mental health conversation error: ${response.status}`);
+      }
+
+      const responseData = await response.json();
+      
+      return {
+        message: responseData.choices[0].message.content,
+        imageAnalysis: imageAnalysis,
+        rawResponse: responseData
+      };
+    } catch (error) {
+      console.error("Error in mental health conversation:", error);
+      toast.error("Conversation Error", {
+        description: "There was a problem processing your message. Please try again.",
+      });
+      throw error;
+    }
+  }
+};
+
 // Export a combined service object
 export const azureAIServices = {
   validateApiConnection,
@@ -568,6 +801,8 @@ export const azureAIServices = {
   translation: translationService,
   token: tokenService,
   gpt: gptService,
+  imageAnalysis: imageAnalysisService, // Add the new service
+  mentalHealth: mentalHealthService, // Add the mental health service
 };
 
 export default azureAIServices;
