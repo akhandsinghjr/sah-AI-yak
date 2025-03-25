@@ -12,7 +12,7 @@ const AZURE_IITPHACKATHON_ENDPOINT = "https://ai-iitphackathon797339300099.opena
 const AZURE_SERVICES_ENDPOINT = "https://ai-iitphackathon797339300099.services.ai.azure.com/";
 const AZURE_SPEECH_ENDPOINT = "https://eastus2.tts.speech.microsoft.com/"; // Add specific East US 2 speech endpoint
 
-// API key (corrected from the Postman examples)
+// API key - use the hardcoded value since we don't have environment variables set up
 const API_KEY = "Fj1KPt7grC6bAkNja7daZUstpP8wZTXsV6Zjr2FOxkO7wsBQ5SzQJQQJ99BCACHYHv6XJ3w3AAAAACOGL3Xg";
 
 // Headers for Azure Cognitive Services API requests
@@ -677,13 +677,68 @@ export const imageAnalysisService = {
  * Mental Health Service
  * Specialized AI service for mental health assessment and assistance
  */
+// Add a utility function for implementing retries with exponential backoff
+const fetchWithRetry = async (url: string, options: RequestInit, maxRetries = 5): Promise<Response> => {
+  let retries = 0;
+  let lastError: Error | null = null;
+  const rateLimitErrors = [429, 529]; // Both standard rate limit error and Azure custom error
+
+  while (retries < maxRetries) {
+    try {
+      const response = await fetch(url, options);
+      
+      // Check for any rate limiting errors
+      if (rateLimitErrors.includes(response.status)) {
+        // Get retry-after header if available, or use exponential backoff with longer delays
+        const retryAfter = response.headers.get('retry-after');
+        // Add more delay for each retry - start with 3 seconds minimum
+        const delayMs = retryAfter ? 
+          parseInt(retryAfter) * 1000 : 
+          Math.max(3000, Math.pow(2, retries + 1) * 1000);
+        
+        console.log(`Rate limited (${response.status}). Retrying in ${delayMs/1000} seconds. Attempt ${retries + 1} of ${maxRetries}`);
+        
+        // Show a toast notification about the rate limiting
+        toast.info("API Rate Limit Reached", {
+          description: `Waiting ${Math.ceil(delayMs/1000)} seconds before retrying. (${retries + 1}/${maxRetries})`,
+          duration: delayMs,
+        });
+        
+        // Wait for the specified delay
+        await new Promise(resolve => setTimeout(resolve, delayMs));
+        retries++;
+        continue;
+      }
+      
+      return response;
+    } catch (error) {
+      console.error(`Fetch attempt ${retries + 1} failed:`, error);
+      lastError = error instanceof Error ? error : new Error(String(error));
+      retries++;
+      
+      if (retries < maxRetries) {
+        // Longer exponential backoff
+        const delayMs = Math.max(3000, Math.pow(2, retries + 1) * 1000);
+        await new Promise(resolve => setTimeout(resolve, delayMs));
+      }
+    }
+  }
+  
+  throw lastError || new Error('Request failed after max retries');
+};
+
+/**
+ * Mental Health Service
+ * Specialized AI service for mental health assessment and assistance
+ */
 export const mentalHealthService = {
   // Initialize the conversation with the mental health expert
   startConversation: async () => {
     const endpoint = `${AZURE_OPENAI_ENDPOINT}openai/deployments/gpt-4/chat/completions?api-version=2025-01-01-preview`;
     
     try {
-      const response = await fetch(endpoint, {
+      // Use fetchWithRetry instead of regular fetch
+      const response = await fetchWithRetry(endpoint, {
         method: "POST",
         headers: getOpenAIHeaders(),
         body: JSON.stringify({
@@ -708,7 +763,8 @@ export const mentalHealthService = {
       });
 
       if (!response.ok) {
-        throw new Error(`Mental health service error: ${response.status}`);
+        const errorText = await response.text();
+        throw new Error(`Mental health service error: ${response.status} - ${errorText}`);
       }
 
       const responseData = await response.json();
@@ -723,24 +779,56 @@ export const mentalHealthService = {
       };
     } catch (error) {
       console.error("Error starting mental health conversation:", error);
-      toast.error("Service Error", {
-        description: "Unable to start mental health assessment. Please try again later.",
-      });
+      
+      // Improved error message handling
+      if (error instanceof Error && error.message.includes('429')) {
+        toast.error("Service Temporarily Busy", {
+          description: "Our mental health service is receiving high traffic. Please try again in a few moments.",
+        });
+      } else {
+        toast.error("Service Error", {
+          description: "Unable to start mental health assessment. Please try again later.",
+        });
+      }
       throw error;
     }
+  },
+
+  // Implement a cooldown mechanism to prevent rapid API calls
+  _lastRequestTime: 0,
+  _minRequestInterval: 5000, // 5 seconds minimum between requests
+  
+  async _enforceRequestCooldown() {
+    const now = Date.now();
+    const timeSinceLastRequest = now - this._lastRequestTime;
+    
+    if (timeSinceLastRequest < this._minRequestInterval) {
+      const waitTime = this._minRequestInterval - timeSinceLastRequest;
+      console.log(`Enforcing cooldown, waiting ${waitTime}ms before next request`);
+      await new Promise(resolve => setTimeout(resolve, waitTime));
+    }
+    
+    this._lastRequestTime = Date.now();
   },
 
   // Continue the conversation with user input - enhanced for emotional discrepancy detection
   continueConversation: async (messages: Array<{role: string, content: string}>, userImage?: Blob | null) => {
     try {
+      // Enforce cooldown between API requests
+      await mentalHealthService._enforceRequestCooldown();
+      
       // First, process any user image if provided
       let imageAnalysis = null;
       let enhancedMessages = [...messages];
+      let imageUrl = null;
       
       // Debug log to see what messages we're sending
       console.log("Mental health messages before processing:", JSON.stringify(enhancedMessages));
       
       if (userImage) {
+        // Store the image for reference 
+        imageUrl = URL.createObjectURL(userImage);
+        
         // Analyze the user's image for sentiment
         imageAnalysis = await imageAnalysisService.analyzeImageSentiment(userImage);
         
@@ -809,7 +897,8 @@ export const mentalHealthService = {
       // Log for debugging
       console.log("Sending enhanced messages to GPT:", JSON.stringify(fullMessages));
       
-      const response = await fetch(endpoint, {
+      // Use fetchWithRetry instead of regular fetch for better handling of rate limits
+      const response = await fetchWithRetry(endpoint, {
         method: "POST",
         headers: getOpenAIHeaders(),
         body: JSON.stringify({
@@ -820,7 +909,8 @@ export const mentalHealthService = {
       });
 
       if (!response.ok) {
-        throw new Error(`Mental health conversation error: ${response.status}`);
+        const errorText = await response.text();
+        throw new Error(`Mental health conversation error: ${response.status} - ${errorText}`);
       }
 
       const responseData = await response.json();
@@ -828,13 +918,25 @@ export const mentalHealthService = {
       return {
         message: responseData.choices[0].message.content,
         imageAnalysis: imageAnalysis,
+        imageUrl: imageUrl, // Return the image URL for display in the UI
         rawResponse: responseData
       };
     } catch (error) {
       console.error("Error in mental health conversation:", error);
-      toast.error("Conversation Error", {
-        description: "There was a problem processing your message. Please try again.",
-      });
+      
+      // Improved error message handling
+      if (error instanceof Error && (error.message.includes('429') || error.message.includes('529'))) {
+        // Increase the cooldown time when we hit rate limits
+        mentalHealthService._minRequestInterval = 10000; // Increase to 10 seconds after a rate limit
+        
+        toast.error("Service Rate Limit Reached", {
+          description: "Our AI service is currently experiencing high demand. Your message will be attempted again shortly.",
+        });
+      } else {
+        toast.error("Conversation Error", {
+          description: "There was a problem processing your message. Please try again.",
+        });
+      }
       throw error;
     }
   }

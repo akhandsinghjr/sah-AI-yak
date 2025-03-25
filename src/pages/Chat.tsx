@@ -13,7 +13,7 @@ import SpeechInput from "@/components/SpeechInput";
 
 const Chat = () => {
   // State for chat functionality
-  const [chatMessages, setChatMessages] = useState<Array<{role: string, content: string, timestamp?: Date, hasImage?: boolean, pendingImage?: boolean}>>([]);
+  const [chatMessages, setChatMessages] = useState<Array<{role: string, content: string, timestamp?: Date, hasImage?: boolean, pendingImage?: boolean, imageUrl?: string}>>([]);
   const [currentMessage, setCurrentMessage] = useState("");
   const [chatImage, setChatImage] = useState<File | null>(null);
   const [chatImagePreview, setChatImagePreview] = useState<string | null>(null);
@@ -41,6 +41,14 @@ const Chat = () => {
   const [useSpeech, setUseSpeech] = useState(true);
   const [activeAudioMessage, setActiveAudioMessage] = useState<string | null>(null);
   const [selectedVoice, setSelectedVoice] = useState<string>("en-US-JennyMultilingualNeural");
+
+  // Add new state for expanded images
+  const [expandedImage, setExpandedImage] = useState<string | null>(null);
+
+  // Add a rate limiting state to track cooldown periods
+  const [isRateLimited, setIsRateLimited] = useState(false);
+  const [rateLimitCooldown, setRateLimitCooldown] = useState(0);
+  const rateLimitTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   // Scroll to bottom when messages update
   useEffect(() => {
@@ -79,8 +87,18 @@ const Chat = () => {
     }
   };
 
-  // Modified sendMessage function to ensure the text is properly sent
+  // Enhanced sendMessage with rate limit awareness
   const sendMessage = async () => {
+    // Don't send if we're in a rate limit cooldown
+    if (isRateLimited) {
+      toast({
+        title: "Service Cooling Down",
+        description: `Please wait ${rateLimitCooldown} seconds before sending another message.`,
+        variant: "destructive",
+      });
+      return;
+    }
+
     if (!currentMessage.trim() && !chatImage) {
       toast({
         title: "Empty Message",
@@ -211,8 +229,8 @@ const Chat = () => {
         // Create a File object from the blob
         const file = new File([blob], "auto-emotion-capture.jpg", { type: "image/jpeg" });
         
-        // Clean up the camera stream
-        cleanupCameraStream();
+        // Create a URL for preview
+        const imageUrl = URL.createObjectURL(blob);
         
         // Update the last user message to show it has an image
         setChatMessages(prevMessages => {
@@ -222,11 +240,15 @@ const Chat = () => {
             if (newMessages[i].role === 'user' && newMessages[i].pendingImage) {
               newMessages[i].hasImage = true;
               newMessages[i].pendingImage = false;
+              newMessages[i].imageUrl = imageUrl;  // Add the image URL right away
               break;
             }
           }
           return newMessages;
         });
+        
+        // Clean up the camera stream
+        cleanupCameraStream();
         
         // Send the message with the captured image
         await sendMessageWithImage(messageText, file);
@@ -268,10 +290,8 @@ const Chat = () => {
     sendMessageWithImage(messageText, null);
   };
 
-  // Improved sendMessageWithImage function with enhanced emotional discrepancy detection
+  // Improved sendMessageWithImage function with retry handling for rate limits
   const sendMessageWithImage = async (messageText: string, imageFile: File | null) => {
-    // Don't add another user message, we already did that in sendMessage
-    // Just set loading state
     setLoading(true);
     
     try {
@@ -319,10 +339,68 @@ const Chat = () => {
       }
       
       // Send message and image to the mental health service
-      const response = await azureAIServices.mentalHealth.continueConversation(
-        apiMessages, 
-        imageFile
-      );
+      let response;
+      try {
+        response = await azureAIServices.mentalHealth.continueConversation(
+          apiMessages, 
+          imageFile
+        );
+      } catch (error) {
+        // For rate limiting errors, show a special message and add a placeholder response
+        if (error instanceof Error && (error.message.includes('429') || error.message.includes('529'))) {
+          // Set a cooldown period of 10 seconds
+          setIsRateLimited(true);
+          setRateLimitCooldown(10);
+          
+          // Start countdown timer
+          if (rateLimitTimerRef.current) {
+            clearInterval(rateLimitTimerRef.current);
+          }
+          
+          rateLimitTimerRef.current = setInterval(() => {
+            setRateLimitCooldown(prev => {
+              if (prev <= 1) {
+                clearInterval(rateLimitTimerRef.current!);
+                setIsRateLimited(false);
+                return 0;
+              }
+              return prev - 1;
+            });
+          }, 1000);
+          
+          // Add a placeholder assistant message to maintain conversation flow
+          setChatMessages(prevMessages => [
+            ...prevMessages,
+            {
+              role: "assistant",
+              content: "I apologize, but our service is experiencing high demand right now. Please wait about 10 seconds before sending another message. Your previous message has been received, but we need to space out requests to the AI service.",
+              timestamp: new Date(),
+            }
+          ]);
+          
+          // Re-throw to be caught by outer catch
+          throw error;
+        }
+        // For other errors, re-throw to be caught by outer catch
+        throw error;
+      }
+      
+      // If we have a valid image, update the last user message with the image URL
+      if (imageFile && response.imageUrl) {
+        setChatMessages(prevMessages => {
+          const newMessages = [...prevMessages];
+          // Find the last user message with pendingImage or hasImage
+          for (let i = newMessages.length - 1; i >= 0; i--) {
+            if (newMessages[i].role === 'user' && (newMessages[i].pendingImage || newMessages[i].hasImage)) {
+              newMessages[i].imageUrl = response.imageUrl;
+              newMessages[i].hasImage = true;
+              newMessages[i].pendingImage = false;
+              break;
+            }
+          }
+          return newMessages;
+        });
+      }
       
       // Add assistant's response to chat
       const assistantResponse = response.message;
@@ -346,11 +424,15 @@ const Chat = () => {
       
     } catch (error) {
       console.error("Error in mental health conversation:", error);
-      toast({
-        title: "Conversation Error",
-        description: "There was an error processing your message. Please try again.",
-        variant: "destructive",
-      });
+      
+      // We already handle rate limiting in the service, so we only need to handle other errors here
+      if (!(error instanceof Error && (error.message.includes('429') || error.message.includes('529')))) {
+        toast({
+          title: "Conversation Error",
+          description: "There was an error processing your message. Please try again.",
+          variant: "destructive",
+        });
+      }
     } finally {
       setLoading(false);
       setPendingMessage("");
@@ -394,7 +476,7 @@ const Chat = () => {
 
       // Close any existing stream first
       if (streamRef.current) {
-        streamRef.current.getTracks().forEach(track => track.stop());
+        streamRef.current.getTracks().forEach(track => stop());
       }
       
       // Reset video ready state
@@ -636,6 +718,10 @@ const Chat = () => {
       if (timeoutRef.current) {
         clearTimeout(timeoutRef.current);
       }
+
+      if (rateLimitTimerRef.current) {
+        clearInterval(rateLimitTimerRef.current);
+      }
     };
   }, []);
 
@@ -644,6 +730,11 @@ const Chat = () => {
     if (text.trim()) {
       setCurrentMessage(text);
     }
+  };
+
+  // Add this new function to handle image expansion
+  const handleImageClick = (imageSrc: string) => {
+    setExpandedImage(imageSrc);
   };
 
   return (
@@ -831,9 +922,38 @@ const Chat = () => {
                         </Button>
                       )}
                     </div>
-                    <div className="text-sm whitespace-pre-wrap font-medium">
+                    <div className="text-sm whitespace-pre-wrap font-medium relative">
                       {message.content}
+                      
+                      {/* Add speaking animation indicator */}
+                      {message.role === 'assistant' && activeAudioMessage === message.content && (
+                        <div className="absolute top-0 -left-4 flex items-end space-x-px h-5 opacity-70">
+                          <div className="w-1 bg-primary rounded-full animate-sound-wave-1"></div>
+                          <div className="w-1 bg-primary rounded-full animate-sound-wave-2"></div>
+                          <div className="w-1 bg-primary rounded-full animate-sound-wave-3"></div>
+                        </div>
+                      )}
                     </div>
+                    
+                    {/* Add image thumbnail if this message has an associated image */}
+                    {message.hasImage && message.role === 'user' && message.imageUrl && (
+                      <div 
+                        className="mt-2 w-20 h-20 rounded overflow-hidden border border-gray-200 dark:border-gray-700 cursor-pointer hover:opacity-90 transition-opacity"
+                        onClick={() => handleImageClick(message.imageUrl || '')}
+                      >
+                        <div className="w-full h-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center text-xs text-gray-500">
+                          <img 
+                            src={message.imageUrl} 
+                            alt="Shared" 
+                            className="w-full h-full object-cover"
+                            onError={(e) => {
+                              // If the image fails to load, show a placeholder
+                              (e.target as HTMLImageElement).src = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='40' height='40' viewBox='0 0 24 24' fill='none' stroke='%23cccccc' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3' y='3' width='18' height='18' rx='2' ry='2'%3E%3C/rect%3E%3Ccircle cx='8.5' cy='8.5' r='1.5'%3E%3C/circle%3E%3Cpolyline points='21 15 16 10 5 21'%3E%3C/polyline%3E%3C/svg%3E";
+                            }}
+                          />
+                        </div>
+                      </div>
+                    )}
                   </div>
                 ))}
                 {loading && (
@@ -860,43 +980,6 @@ const Chat = () => {
               </div>
               
               {/* Enhanced image preview with loading indicator */}
-              {chatImagePreview && (
-                <div className="relative mb-2">
-                  <div className="relative rounded-md overflow-hidden border border-gray-200 dark:border-gray-700 max-h-[120px] max-w-[200px]">
-                    <img 
-                      src={chatImagePreview} 
-                      alt="Preview" 
-                      className="max-h-[120px] object-cover"
-                    />
-                    <button
-                      onClick={() => {
-                        setChatImage(null);
-                        setChatImagePreview(null);
-                      }}
-                      className="absolute top-1 right-1 bg-gray-800/70 text-white rounded-full p-1"
-                    >
-                      <XIcon className="h-4 w-4" />
-                    </button>
-                  </div>
-                  <div className="mt-1 text-xs text-blue-600 dark:text-blue-400">
-                    Using this photo instead of auto-capture
-                  </div>
-                </div>
-              )}
-              
-              {/* Speech Controls */}
-              {activeAudioMessage && (
-                <div className="mb-2 flex items-center justify-end">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="text-xs"
-                    onClick={() => setActiveAudioMessage(null)}
-                  >
-                    Stop Audio
-                  </Button>
-                </div>
-              )}
               
               {/* Speech Toggle and Voice Selection */}
               {!activeAudioMessage && (
@@ -1110,6 +1193,30 @@ const Chat = () => {
               Capture
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Image preview modal */}
+      <Dialog open={!!expandedImage} onOpenChange={(open) => !open && setExpandedImage(null)}>
+        <DialogContent className="sm:max-w-lg p-1">
+          <div className="relative">
+            <img 
+              src={expandedImage || ''} 
+              alt="Enlarged" 
+              className="w-full rounded"
+              onError={(e) => {
+                (e.target as HTMLImageElement).src = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100' height='100' viewBox='0 0 24 24' fill='none' stroke='%23cccccc' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3' y='3' width='18' height='18' rx='2' ry='2'%3E%3C/rect%3E%3Ccircle cx='8.5' cy='8.5' r='1.5'%3E%3C/circle%3E%3Cpolyline points='21 15 16 10 5 21'%3E%3C/polyline%3E%3C/svg%3E";
+              }}
+            />
+            <Button 
+              className="absolute top-2 right-2 h-8 w-8 rounded-full bg-black/50 hover:bg-black/70"
+              size="icon"
+              variant="ghost"
+              onClick={() => setExpandedImage(null)}
+            >
+              <XIcon className="h-4 w-4 text-white" />
+            </Button>
+          </div>
         </DialogContent>
       </Dialog>
     </div>

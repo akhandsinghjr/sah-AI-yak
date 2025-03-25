@@ -130,9 +130,18 @@ const SpeechPlayback: React.FC<SpeechPlaybackProps> = ({
       ) : audioUrl ? (
         <div className="flex items-center justify-between bg-gray-100 dark:bg-gray-800 rounded-md p-2">
           <div className="flex gap-2 items-center">
-            <div className={`w-8 h-8 rounded-full flex items-center justify-center bg-primary/20 ${isPlaying ? 'animate-pulse' : ''}`}>
+            <div className={`w-8 h-8 rounded-full flex items-center justify-center bg-primary/20 relative ${isPlaying ? 'animate-pulse' : ''}`}>
               {isPlaying ? (
-                <PauseIcon className="h-4 w-4 text-primary" />
+                <>
+                  <PauseIcon className="h-4 w-4 text-primary" />
+                  {/* Sound wave animation */}
+                  <div className="absolute -right-4 top-1 flex items-end h-6 overflow-hidden">
+                    <div className={`w-1 mx-px bg-primary rounded-full ${isPlaying ? 'animate-sound-wave-1' : 'h-1'}`}></div>
+                    <div className={`w-1 mx-px bg-primary rounded-full ${isPlaying ? 'animate-sound-wave-2' : 'h-1'}`}></div>
+                    <div className={`w-1 mx-px bg-primary rounded-full ${isPlaying ? 'animate-sound-wave-3' : 'h-1'}`}></div>
+                    <div className={`w-1 mx-px bg-primary rounded-full ${isPlaying ? 'animate-sound-wave-4' : 'h-1'}`}></div>
+                  </div>
+                </>
               ) : (
                 <PlayIcon className="h-4 w-4 text-primary" />
               )}
