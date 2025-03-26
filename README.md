@@ -46,13 +46,6 @@ With rising competition in today's world, reports of young students facing extre
 
 ---
 
-### Future Scope: 🔮
-- Collaboration with mental health professionals
-- Tone analysis
-- Generating a final report after the assessment
-
----
-
 ## Tech Stack 🖥️
 
 ### Frontend 💻
