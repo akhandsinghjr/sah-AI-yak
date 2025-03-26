@@ -14,13 +14,12 @@
 
 ## Project Overview
 
-sah-AI-yak is a TypeScript-based application that leverages AI services to [primary function based on repository analysis]. The project predominantly uses TypeScript (96.8%), with minor components in JavaScript (1.8%), CSS (1.1%), and HTML (0.3%).
+sah-AI-yak is a TypeScript-based application that leverages AI services to 
 
 ### Key Features
 - AI-powered conversation and assistance
 - TypeScript-based architecture for type safety
 - React-based frontend (inferred from technology stack)
-- [Other key features based on repository exploration]
 
 ## Architecture
 
