@@ -31,11 +31,6 @@ With rising competition in today's world, reports of young students facing extre
 
 ---
 
-### Design Idea:
-*Details about the design idea can be placed here.*
-
----
-
 ### Tools and Technologies used: 🛠️
 - **Azure AI Services**: Cognitive Services, OpenAI service, Speech Services
 - **Vite**
