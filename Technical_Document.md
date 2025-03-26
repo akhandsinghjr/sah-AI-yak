@@ -14,7 +14,7 @@
 
 ## Project Overview
 
-sah-AI-yak is a TypeScript-based application that leverages AI services to 
+sah-AI-yak is a TypeScript-based application that leverages AI services to analyse emotional sentiments through text, images and voice. Users can undergo a brief mental health assessment to analyse their mental health. sah-AI-yak aims to create a safe and supportive space where users can openly express their emotions, seek guidance, and receive timely assistance.
 
 ### Key Features
 - AI-powered conversation and assistance
@@ -168,14 +168,14 @@ async function generateAIResponse(prompt: string): Promise<string> {
 ## Challenges & Solutions
 
 ### Technical Challenges
-1. **Challenge**: Rate Limit were easily reached
-   **Solution**: we created a modal that runs 5 times at different time intervasl to check if the rate limit is in check and we can make calls now
+1. **Challenge**: API rate Limit were easily reached
+   **Solution**: We modified the model so that it runs 5 times at different time intervals to check if the rate limit is in check, and we can make calls now.
 
-2. **Challenge**: AI response consistency
-   **Solution**: Implemented prompt engineering techniques and response validation
+2. **Challenge**: Deploying real-time analysis
+   **Solution**: 
 
-3. **Challenge**: Type safety across the application
-   **Solution**: Comprehensive TypeScript interfaces and strict type checking
+3. **Challenge**: Integrating Azure AI services(Access Issues)
+   **Solution**: 
 
 ### Development Hurdles
 1. **Integration Complexity**: Managing multiple AI service integrations
@@ -184,36 +184,8 @@ async function generateAIResponse(prompt: string): Promise<string> {
 
 ## Future Improvements
 
-### Short-term Enhancements
-- Improve error handling and recovery
-- Enhance test coverage
-- Optimize API calls to reduce latency
-
-### Mid-term Goals
-- Add support for additional AI models
-- Implement caching strategy for frequent requests
-- Enhance user interface for better interaction
-
-### Long-term Vision
-- Develop advanced analytics for AI response quality
-- Create a plugin system for extending functionality
-- Implement learning capabilities to improve responses over time
-
-## Appendix
-
-### API Reference
-- Endpoint documentation
-- Request/response formats
-- Error codes and meanings
-
-### Configuration Options
-- Available environment variables
-- Feature flags
-- Performance tuning parameters
-
-### Troubleshooting Guide
-- Common issues and solutions
-- Debugging techniques
-- Support contact information
+- **Collaborating with mental health professionals:** Expert insights can help refine the AI’s recommendations, ensuring users receive appropriate guidance and, if needed, professional intervention.
+- **Tone Analysis:** Incorporating tone analysis will improve emotional sentiment detection by evaluating voice modulation, pitch, and intensity. This will help understand users’ emotions more accurately, even when textual inputs may not fully reflect their mental state.
+- **Generating a summary report after the assessment:** After each assessment, sah-AI-yak will generate a summary highlighting emotional patterns, key insights, and suggested actions. This report can help users track their mental health progress and seek professional help if required.
 
 ---
