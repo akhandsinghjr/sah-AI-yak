@@ -26,8 +26,8 @@ sah-AI-yak is a TypeScript-based application that leverages AI services to
 ### Technology Stack
 - **Frontend**: React with TypeScript
 - **Styling**: CSS
-- **AI Integration**: [Specific AI services found in repository]
-- **Build Tools**: [Build tools identified from package.json]
+- **AI Integration**: Azure AI Services
+- **Build Tools**: NPM,NPX,Docker
 
 ### Component Structure
 ```
@@ -73,7 +73,7 @@ src/
 ## AI Services Integration
 
 ### Integrated AI Models
-- [AI model details from repository]
+- Azure AI Services
 - Configuration settings and parameters
 - Response handling and processing
 
@@ -161,29 +161,15 @@ async function generateAIResponse(prompt: string): Promise<string> {
 
 ## Testing Results
 
-### Automated Testing
-- Unit tests coverage: [percentage]
-- Integration tests status
-- Performance test results
-
-### Manual Testing Scenarios
-| Test Case | Expected Result | Actual Result | Status |
-|-----------|-----------------|---------------|--------|
-| User login | Successful authentication | Successful | ✅ |
-| AI response generation | Coherent, contextual response | Satisfactory with occasional inconsistencies | ⚠️ |
-| Error handling | Graceful error recovery | Works as expected | ✅ |
-| [Other test cases] | | | |
-
 ### Performance Metrics
-- Average response time: [X] ms
-- Load handling capacity: [Y] concurrent users
-- Memory usage: [Z] MB
+- Average response time: 1.5 s
+- Load handling capacity: 10 concurrent users
 
 ## Challenges & Solutions
 
 ### Technical Challenges
-1. **Challenge**: [Significant challenge identified from codebase]
-   **Solution**: [How it was addressed]
+1. **Challenge**: Rate Limit were easily reached
+   **Solution**: we created a modal that runs 5 times at different time intervasl to check if the rate limit is in check and we can make calls now
 
 2. **Challenge**: AI response consistency
    **Solution**: Implemented prompt engineering techniques and response validation
