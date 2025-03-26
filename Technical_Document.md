@@ -171,16 +171,8 @@ async function generateAIResponse(prompt: string): Promise<string> {
 1. **Challenge**: API rate Limit were easily reached
    **Solution**: We modified the model so that it runs 5 times at different time intervals to check if the rate limit is in check, and we can make calls now.
 
-2. **Challenge**: Deploying real-time analysis
-   **Solution**: 
-
-3. **Challenge**: Integrating Azure AI services(Access Issues)
-   **Solution**: 
-
-### Development Hurdles
-1. **Integration Complexity**: Managing multiple AI service integrations
-2. **Performance Optimization**: Balancing response time with quality
-3. **[Other hurdles identified]**
+2. **Challenge**: Integrating Azure AI services(Access Issues)
+   **Solution**: we had to go through the documentation to check which region the service was availbale in, like for text-to-speech we had to choose us-east-2.
 
 ## Future Improvements
 
