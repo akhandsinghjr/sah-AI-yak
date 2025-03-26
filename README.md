@@ -56,6 +56,9 @@ With rising competition in today's world, reports of young students facing extre
 - **Azure Speech Service**: Text-to-speech for voice responses
 - **Azure Content Safety**: Content moderation
 
+  ![Screenshot 2025-03-26 131813](https://github.com/user-attachments/assets/ae44b777-9b41-497e-bb21-4eeeeee42ee6)
+
+
 ### Media Processing 🎥
 - **Camera Integration**: WebRTC API and Canvas for photo capture
 - **Speech Recognition**: Web Speech API for speech-to-text
